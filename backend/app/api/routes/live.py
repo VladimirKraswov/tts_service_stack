@@ -20,12 +20,23 @@ from app.services.preprocessor import TechnicalPreprocessor
 router = APIRouter(prefix='/live', tags=['live'])
 preprocessor = TechnicalPreprocessor()
 
+MAX_PREVIEW_CHARS = 400
+
+
+def _validate_preview_text(text: str) -> None:
+    if len(text.strip()) > MAX_PREVIEW_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Preview text is too long. Max {MAX_PREVIEW_CHARS} characters.',
+        )
+
 
 @router.post('/preview-meta', response_model=LivePreviewMetaResponse)
 async def preview_audio_meta(
     payload: LivePreviewRequest,
     db: Session = Depends(get_db),
 ) -> LivePreviewMetaResponse:
+    _validate_preview_text(payload.text)
     processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
     return LivePreviewMetaResponse(
         original_text=payload.text,
@@ -39,6 +50,8 @@ async def preview_audio(
     payload: LivePreviewRequest,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    _validate_preview_text(payload.text)
+
     try:
         processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
         engine = request.app.state.preview_engine
@@ -54,6 +67,8 @@ async def preview_audio(
             iter([wav_bytes]),
             media_type='audio/wav',
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'Preview synthesis failed: {exc}') from exc
 
