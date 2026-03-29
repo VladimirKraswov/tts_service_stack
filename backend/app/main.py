@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from redis.asyncio import Redis
 
 from app.api.routes.dictionaries import router as dictionaries_router
 from app.api.routes.health import router as health_router
@@ -14,35 +15,45 @@ from app.api.routes.voices import router as voices_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
-from app.services.live_sessions import LiveSessionManager
+from app.services.live.factory import get_live_engine
+from app.services.live.manager import LiveSessionManager
 from app.services.preprocessor import TechnicalPreprocessor
-from app.services.tts.factory import get_tts_engine
-import os
+from app.services.preview.factory import get_preview_engine
 
 settings = get_settings()
 configure_logging()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not os.getenv("TESTING"):
         init_db()
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    preprocessor = TechnicalPreprocessor()
-    tts_engine = get_tts_engine()
 
-    app.state.redis = redis
-    app.state.tts_engine = tts_engine
-    app.state.live_manager = LiveSessionManager(
-        redis=redis,
-        tts_engine=tts_engine,
+    preprocessor = TechnicalPreprocessor()
+    preview_engine = get_preview_engine()
+    live_engine = get_live_engine()
+    live_manager = LiveSessionManager(
+        live_engine=live_engine,
         preprocessor=preprocessor,
     )
 
+    app.state.preview_engine = preview_engine
+    app.state.live_engine = live_engine
+    app.state.live_manager = live_manager
+
     try:
+        logger.info('Warming up preview engine...')
+        await preview_engine.warmup()
+        logger.info('Preview engine warmup completed')
+
+        logger.info('Warming up live engine...')
+        await live_manager.startup()
+        logger.info('Live engine warmup completed')
+
         yield
     finally:
-        await redis.close()
+        await live_manager.shutdown()
 
 
 app = FastAPI(title=settings.app_title, lifespan=lifespan)
@@ -50,12 +61,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         settings.frontend_origin,
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
+        'http://localhost:8080',
+        'http://127.0.0.1:8080',
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 app.include_router(health_router, prefix=settings.api_prefix)

@@ -1,49 +1,32 @@
 from __future__ import annotations
 
 import json
-import logging
-from urllib.parse import quote
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from urllib.parse import quote
 
 from app.api.deps import get_db
-from app.schemas.live import LiveEnqueueRequest, LivePreviewRequest
+from app.schemas.live import LiveBufferAppendRequest, LiveEnqueueRequest, LiveFlushRequest, LivePreviewRequest
 from app.services.preprocessor import TechnicalPreprocessor
-from app.services.tts.base import SynthRequest
-from app.services.tts.factory import get_tts_engine
+from app.services.preview.base import PreviewRequest
 
 router = APIRouter(prefix='/live', tags=['live'])
 preprocessor = TechnicalPreprocessor()
-logger = logging.getLogger(__name__)
-
-
-@router.post('/enqueue')
-async def enqueue_live(request: Request, payload: LiveEnqueueRequest) -> dict[str, str]:
-    manager = request.app.state.live_manager
-    await manager.enqueue(
-        payload.session_id,
-        {
-            'job_id': str(uuid4()),
-            'text': payload.text,
-            'dictionary_id': payload.dictionary_id,
-            'voice_id': payload.voice_id,
-            'lora_name': payload.lora_name,
-            'language': payload.language,
-        },
-    )
-    return {'status': 'queued'}
 
 
 @router.post('/preview')
-async def preview_live_audio(payload: LivePreviewRequest, db: Session = Depends(get_db)) -> StreamingResponse:
+async def preview_audio(
+    request: Request,
+    payload: LivePreviewRequest,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
     try:
         processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
-        engine = get_tts_engine()
-        wav_bytes = await engine.synthesize_preview(
-            SynthRequest(
+        engine = request.app.state.preview_engine
+        wav_bytes = await engine.synthesize(
+            PreviewRequest(
                 text=processed.processed_text,
                 voice_id=payload.voice_id,
                 lora_name=payload.lora_name,
@@ -56,34 +39,99 @@ async def preview_live_audio(payload: LivePreviewRequest, db: Session = Depends(
             media_type='audio/wav',
             headers={'X-Processed-Text': processed_header},
         )
-    except HTTPException:
-        raise
     except Exception as exc:
-        logger.exception('Preview synthesis failed')
-        raise HTTPException(status_code=503, detail=f'TTS preview failed: {exc}') from exc
+        raise HTTPException(status_code=503, detail=f'Preview synthesis failed: {exc}') from exc
+
+
+@router.post('/enqueue')
+async def enqueue_live(request: Request, payload: LiveEnqueueRequest) -> dict[str, str]:
+    manager = request.app.state.live_manager
+    try:
+        await manager.enqueue_once(
+            payload.session_id,
+            payload.text,
+            dictionary_id=payload.dictionary_id,
+            voice_id=payload.voice_id,
+            lora_name=payload.lora_name,
+            language=payload.language,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {'status': 'queued'}
+
+
+@router.post('/buffer/append')
+async def append_buffer(request: Request, payload: LiveBufferAppendRequest) -> dict[str, str]:
+    manager = request.app.state.live_manager
+    try:
+        await manager.append_text(
+            payload.session_id,
+            payload.text,
+            dictionary_id=payload.dictionary_id,
+            voice_id=payload.voice_id,
+            lora_name=payload.lora_name,
+            language=payload.language,
+            flush=payload.flush,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {'status': 'buffered'}
+
+
+@router.post('/buffer/flush')
+async def flush_buffer(request: Request, payload: LiveFlushRequest) -> dict[str, str]:
+    manager = request.app.state.live_manager
+    try:
+        await manager.flush(payload.session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {'status': 'flushed'}
 
 
 @router.websocket('/ws/{session_id}')
 async def live_ws(websocket: WebSocket, session_id: str) -> None:
     manager = websocket.app.state.live_manager
     await manager.connect(session_id, websocket)
+
     try:
         while True:
             raw = await websocket.receive_text()
             data = json.loads(raw)
-            if data.get('type') == 'enqueue_text':
-                await manager.enqueue(
+
+            msg_type = data.get('type')
+
+            if msg_type == 'append_text':
+                await manager.append_text(
                     session_id,
-                    {
-                        'job_id': data.get('job_id') or str(uuid4()),
-                        'text': data['text'],
-                        'dictionary_id': data.get('dictionary_id'),
-                        'voice_id': data.get('voice_id'),
-                        'lora_name': data.get('lora_name'),
-                        'language': data.get('language', 'ru'),
-                    },
+                    data.get('text', ''),
+                    dictionary_id=data.get('dictionary_id'),
+                    voice_id=data.get('voice_id'),
+                    lora_name=data.get('lora_name'),
+                    language=data.get('language', 'ru'),
+                    flush=bool(data.get('flush', False)),
                 )
-            elif data.get('type') == 'ping':
+
+            elif msg_type == 'enqueue_text':
+                await manager.enqueue_once(
+                    session_id,
+                    data.get('text', ''),
+                    dictionary_id=data.get('dictionary_id'),
+                    voice_id=data.get('voice_id'),
+                    lora_name=data.get('lora_name'),
+                    language=data.get('language', 'ru'),
+                )
+
+            elif msg_type == 'flush':
+                await manager.flush(session_id)
+
+            elif msg_type == 'clear_buffer':
+                await manager.clear_buffer(session_id)
+
+            elif msg_type == 'ping':
                 await websocket.send_json({'type': 'pong'})
+
     except WebSocketDisconnect:
         await manager.disconnect(session_id)

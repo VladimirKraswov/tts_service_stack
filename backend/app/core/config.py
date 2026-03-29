@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default='/api/v1', alias='API_PREFIX')
     frontend_origin: str = Field(default='http://localhost:8080', alias='FRONTEND_ORIGIN')
 
-    database_url: str = Field(default='postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin', alias='DATABASE_URL')
+    database_url: str = Field(
+        default='postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin',
+        alias='DATABASE_URL',
+    )
     redis_url: str = Field(default='redis://redis:6379/0', alias='REDIS_URL')
     data_dir: Path = Field(default=Path('/data'), alias='DATA_DIR')
 
@@ -25,10 +28,18 @@ class Settings(BaseSettings):
     qwen_attn_implementation: str = Field(default='sdpa', alias='QWEN_ATTN_IMPLEMENTATION')
     qwen_compile: bool = Field(default=False, alias='QWEN_COMPILE')
     qwen_max_concurrent: int = Field(default=2, alias='QWEN_MAX_CONCURRENT')
-    qwen_preview_style: str = Field(default='Четко, спокойно, как технический диктор.', alias='QWEN_PREVIEW_STYLE')
+    qwen_preview_style: str = Field(
+        default='Четко, спокойно, как технический диктор.',
+        alias='QWEN_PREVIEW_STYLE',
+    )
 
     audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
+
+    live_buffer_idle_ms: int = Field(default=280, alias='LIVE_BUFFER_IDLE_MS')
+    live_buffer_target_chars: int = Field(default=48, alias='LIVE_BUFFER_TARGET_CHARS')
+    live_buffer_max_chars: int = Field(default=72, alias='LIVE_BUFFER_MAX_CHARS')
+    live_pcm_chunk_ms: int = Field(default=60, alias='LIVE_PCM_CHUNK_MS')
 
     @property
     def upload_dir(self) -> Path:
