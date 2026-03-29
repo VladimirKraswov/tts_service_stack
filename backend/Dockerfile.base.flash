@@ -5,12 +5,9 @@ ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 
-# === Настройки для быстрой сборки flash-attn ===
-# ENV MAX_JOBS=48
-# ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0;12.0"
-ENV MAX_JOBS=20
-# Blackwell (RTX 5090)
-ENV TORCH_CUDA_ARCH_LIST="12.0"   
+# === Настройки для сборки flash-attn ===
+ENV MAX_JOBS=32                    # безопасно для твоих VRM (можно поднять до 32)
+ENV TORCH_CUDA_ARCH_LIST="12.0"    # только RTX 5090 (Blackwell)
 
 WORKDIR /opt/tts-base
 
@@ -31,7 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
     python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
-COPY requirements.txt /tmp/requirements.txt
+# ←←← ИСПРАВЛЕНИЕ ЗДЕСЬ ←←←
+COPY backend/requirements.txt /tmp/requirements.txt
 
 # Установка PyTorch + flash-attn + остальные пакеты
 RUN pip install --no-cache-dir \
@@ -41,7 +39,8 @@ RUN pip install --no-cache-dir \
     # flash-attn — самый тяжёлый этап
     MAX_JOBS=${MAX_JOBS} \
     TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}" \
+    CMAKE_BUILD_PARALLEL_LEVEL=${MAX_JOBS} \
     pip install --no-cache-dir --no-build-isolation -U flash-attn && \
     \
-    # Остальные зависимости из requirements.txt
+    # Остальные зависимости
     pip install --no-cache-dir -r /tmp/requirements.txt
