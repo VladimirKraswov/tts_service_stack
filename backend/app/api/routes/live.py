@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from urllib.parse import quote
 
 from app.api.deps import get_db
 from app.schemas.live import LiveBufferAppendRequest, LiveEnqueueRequest, LiveFlushRequest, LivePreviewRequest
-from app.services.preprocessor import TechnicalPreprocessor
 from app.services.preview.base import PreviewRequest
+from app.services.preprocessor import TechnicalPreprocessor
 
 router = APIRouter(prefix='/live', tags=['live'])
 preprocessor = TechnicalPreprocessor()
@@ -57,6 +57,8 @@ async def enqueue_live(request: Request, payload: LiveEnqueueRequest) -> dict[st
         )
     except KeyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f'Live enqueue failed: {exc}') from exc
 
     return {'status': 'queued'}
 
@@ -76,6 +78,8 @@ async def append_buffer(request: Request, payload: LiveBufferAppendRequest) -> d
         )
     except KeyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f'Live buffer append failed: {exc}') from exc
 
     return {'status': 'buffered'}
 
@@ -87,6 +91,8 @@ async def flush_buffer(request: Request, payload: LiveFlushRequest) -> dict[str,
         await manager.flush(payload.session_id)
     except KeyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f'Live buffer flush failed: {exc}') from exc
 
     return {'status': 'flushed'}
 
@@ -94,13 +100,22 @@ async def flush_buffer(request: Request, payload: LiveFlushRequest) -> dict[str,
 @router.websocket('/ws/{session_id}')
 async def live_ws(websocket: WebSocket, session_id: str) -> None:
     manager = websocket.app.state.live_manager
-    await manager.connect(session_id, websocket)
+
+    try:
+        await manager.connect(session_id, websocket)
+    except Exception as exc:
+        await websocket.accept()
+        await websocket.send_json({
+            'type': 'job.error',
+            'error': f'Live session init failed: {exc}',
+        })
+        await websocket.close()
+        return
 
     try:
         while True:
             raw = await websocket.receive_text()
             data = json.loads(raw)
-
             msg_type = data.get('type')
 
             if msg_type == 'append_text':
@@ -134,4 +149,10 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
                 await websocket.send_json({'type': 'pong'})
 
     except WebSocketDisconnect:
+        await manager.disconnect(session_id)
+    except Exception as exc:
+        try:
+            await websocket.send_json({'type': 'job.error', 'error': str(exc)})
+        except Exception:
+            pass
         await manager.disconnect(session_id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -25,6 +26,22 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 
+async def _safe_warmup(app: FastAPI) -> None:
+    try:
+        logger.info('Background warmup: preview engine...')
+        await app.state.preview_engine.warmup()
+        logger.info('Background warmup: preview engine ready')
+    except Exception:
+        logger.exception('Background warmup failed for preview engine')
+
+    try:
+        logger.info('Background warmup: live engine...')
+        await app.state.live_manager.startup()
+        logger.info('Background warmup: live engine ready')
+    except Exception:
+        logger.exception('Background warmup failed for live engine')
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not os.getenv("TESTING"):
@@ -41,18 +58,21 @@ async def lifespan(app: FastAPI):
     app.state.preview_engine = preview_engine
     app.state.live_engine = live_engine
     app.state.live_manager = live_manager
+    app.state.warmup_task = None
 
     try:
-        logger.info('Warming up preview engine...')
-        await preview_engine.warmup()
-        logger.info('Preview engine warmup completed')
-
-        logger.info('Warming up live engine...')
-        await live_manager.startup()
-        logger.info('Live engine warmup completed')
-
+        # ВАЖНО: не блокируем запуск API прогревом модели
+        app.state.warmup_task = asyncio.create_task(_safe_warmup(app), name='tts-background-warmup')
         yield
     finally:
+        warmup_task = getattr(app.state, 'warmup_task', None)
+        if warmup_task is not None:
+            warmup_task.cancel()
+            try:
+                await warmup_task
+            except asyncio.CancelledError:
+                pass
+
         await live_manager.shutdown()
 
 
