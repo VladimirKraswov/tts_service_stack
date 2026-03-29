@@ -73,8 +73,7 @@ class LiveTextBuffer:
     def idle_flush_due(self) -> bool:
         if not self.pending_text.strip():
             return False
-        elapsed = time.monotonic() - self.last_update_ts
-        return elapsed >= (settings.live_buffer_idle_ms / 1000.0)
+        return (time.monotonic() - self.last_update_ts) >= (settings.live_buffer_idle_ms / 1000.0)
 
     def _extract_ready(self, *, force: bool) -> list[BufferedSegment]:
         text = self.pending_text.strip()
@@ -83,45 +82,42 @@ class LiveTextBuffer:
             return []
 
         if force:
-            raw_segments = self._chunk_text(text)
+            ready = self._chunk_text(text)
             self.pending_text = ''
-            return [self._to_segment(item) for item in raw_segments]
+            return [self._to_segment(item) for item in ready]
 
-        ready_segments, remainder = self._split_ready(text)
+        ready, remainder = self._split_ready(text)
         self.pending_text = remainder
-        return [self._to_segment(item) for item in ready_segments]
-
-    def _to_segment(self, text: str) -> BufferedSegment:
-        return BufferedSegment(
-            segment_id=str(uuid4()),
-            text=text,
-            dictionary_id=self.dictionary_id,
-            voice_id=self.voice_id,
-            lora_name=self.lora_name,
-            language=self.language,
-        )
+        return [self._to_segment(item) for item in ready]
 
     def _split_ready(self, text: str) -> tuple[list[str], str]:
         ready: list[str] = []
-        last_end = 0
+        remainder = text
 
-        for match in re.finditer(r'.+?[.!?;:](?=\s|$)', text, flags=re.DOTALL):
-            sentence = match.group(0).strip()
-            if sentence:
-                ready.extend(self._chunk_text(sentence))
-            last_end = match.end()
+        while remainder:
+            hard_match = re.match(r'^(.*?[.!?;:])(\s+|$)', remainder, flags=re.DOTALL)
+            if hard_match:
+                segment = hard_match.group(1).strip()
+                if segment:
+                    ready.extend(self._chunk_text(segment))
+                remainder = remainder[hard_match.end():].strip()
+                continue
 
-        remainder = text[last_end:].strip()
+            if len(remainder) >= settings.live_buffer_max_chars:
+                head, tail = self._take_soft_chunk(remainder)
+                if head:
+                    ready.extend(self._chunk_text(head))
+                remainder = tail
+                continue
 
-        if not ready and len(text) >= settings.live_buffer_max_chars:
-            head, tail = self._take_soft_chunk(text)
-            ready.extend(self._chunk_text(head))
-            remainder = tail
+            if len(remainder) >= settings.live_buffer_soft_flush_chars and re.search(r'[,)\]]\s*$|\s+$', remainder):
+                head, tail = self._take_soft_chunk(remainder)
+                if head:
+                    ready.extend(self._chunk_text(head))
+                remainder = tail
+                continue
 
-        elif ready and remainder and len(remainder) >= settings.live_buffer_max_chars:
-            head, tail = self._take_soft_chunk(remainder)
-            ready.extend(self._chunk_text(head))
-            remainder = tail
+            break
 
         return ready, remainder
 
@@ -143,15 +139,15 @@ class LiveTextBuffer:
                 chunks.append(rest.strip())
                 break
 
-            split_range = rest[:max_len]
-            soft_pos = split_range.rfind(' ', 0, target + 1)
-            if soft_pos < max(8, target // 2):
-                soft_pos = split_range.rfind(' ')
-            if soft_pos <= 0:
-                soft_pos = max_len
+            window = rest[:max_len]
+            split_pos = window.rfind(' ', 0, target + 1)
+            if split_pos < max(8, target // 2):
+                split_pos = window.rfind(' ')
+            if split_pos <= 0:
+                split_pos = max_len
 
-            head = rest[:soft_pos].strip()
-            rest = rest[soft_pos:].strip()
+            head = rest[:split_pos].strip()
+            rest = rest[split_pos:].strip()
 
             if head:
                 chunks.append(head)
@@ -159,20 +155,33 @@ class LiveTextBuffer:
         return chunks
 
     def _take_soft_chunk(self, text: str) -> tuple[str, str]:
+        if len(text) <= settings.live_buffer_max_chars:
+            return text.strip(), ''
+
         target = settings.live_buffer_target_chars
-        max_len = settings.live_buffer_max_chars
+        window = text[:settings.live_buffer_max_chars]
 
-        if len(text) <= max_len:
-            return text, ''
-
-        window = text[:max_len]
-        split_pos = window.rfind(' ', 0, target + 1)
+        split_pos = -1
+        for token in [', ', ') ', '] ', ' ']:
+            split_pos = max(split_pos, window.rfind(token, 0, target + 1))
         if split_pos < max(8, target // 2):
             split_pos = window.rfind(' ')
         if split_pos <= 0:
-            split_pos = max_len
+            split_pos = settings.live_buffer_target_chars
 
-        return text[:split_pos].strip(), text[split_pos:].strip()
+        head = text[:split_pos].strip()
+        tail = text[split_pos:].strip()
+        return head, tail
+
+    def _to_segment(self, text: str) -> BufferedSegment:
+        return BufferedSegment(
+            segment_id=str(uuid4()),
+            text=text,
+            dictionary_id=self.dictionary_id,
+            voice_id=self.voice_id,
+            lora_name=self.lora_name,
+            language=self.language,
+        )
 
     def _join_text(self, current: str, incoming: str) -> str:
         left = current.strip()
@@ -182,11 +191,6 @@ class LiveTextBuffer:
             return right
         if not right:
             return left
-
-        if left.endswith((' ', '\n')):
-            return f'{left}{right}'.strip()
-
         if right.startswith((',', '.', '!', '?', ';', ':')):
             return f'{left}{right}'.strip()
-
         return f'{left} {right}'.strip()

@@ -28,19 +28,22 @@ export function TestingPage() {
   const [previewProcessedText, setPreviewProcessedText] = useState('')
   const [isPreviewing, setIsPreviewing] = useState(false)
 
-  const [liveDraft, setLiveDraft] = useState('Это live режим. Текст можно подавать в буфер порциями.')
+  const [liveDraft, setLiveDraft] = useState('Это live режим. Текст попадает в буфер частями и быстро начинает озвучиваться.')
   const [liveStatus, setLiveStatus] = useState('disconnected')
   const [pendingText, setPendingText] = useState('')
   const [pendingChars, setPendingChars] = useState(0)
   const [events, setEvents] = useState<string[]>([])
+  const [autoStream, setAutoStream] = useState(true)
 
   const websocketRef = useRef<WebSocket | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const liveSentRef = useRef('')
+  const autoSendTimerRef = useRef<number | null>(null)
 
   const voiceOptions = useMemo(() => voices.filter((voice) => voice.kind === 'voice'), [voices])
   const loraOptions = useMemo(() => voices.filter((voice) => voice.kind === 'lora'), [voices])
 
-  const log = (message: string) => setEvents((prev) => [message, ...prev].slice(0, 80))
+  const log = (message: string) => setEvents((prev) => [message, ...prev].slice(0, 100))
 
   const refreshData = async () => {
     const [dicts, voiceRows] = await Promise.all([client.listDictionaries(), client.listVoices()])
@@ -56,6 +59,9 @@ export function TestingPage() {
     return () => {
       disconnect()
       if (previewUrl) URL.revokeObjectURL(previewUrl)
+      if (autoSendTimerRef.current !== null) {
+        window.clearTimeout(autoSendTimerRef.current)
+      }
     }
   }, [])
 
@@ -77,6 +83,7 @@ export function TestingPage() {
     ws.onopen = () => {
       setLiveStatus('connected')
       log(`WS connected: ${sessionId}`)
+      liveSentRef.current = ''
     }
 
     ws.onclose = () => {
@@ -109,75 +116,140 @@ export function TestingPage() {
   const disconnect = () => {
     websocketRef.current?.close()
     websocketRef.current = null
+    liveSentRef.current = ''
     setLiveStatus('disconnected')
     setPendingText('')
     setPendingChars(0)
     stopAudio()
   }
 
-  const sendLive = async (flush: boolean) => {
+  const sendWsMessage = async (payload: unknown) => {
     if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
       show('Сначала подключи WebSocket', 'info')
-      return
+      return false
     }
 
     try {
       await prepare()
-      websocketRef.current.send(
-        JSON.stringify({
-          type: 'append_text',
-          text: liveDraft,
-          flush,
-          dictionary_id: dictionaryId,
-          voice_id: voiceId,
-          lora_name: loraName,
-          language: 'ru',
-        }),
-      )
-      log(flush ? 'append_text + flush sent' : 'append_text sent')
+      websocketRef.current.send(JSON.stringify(payload))
+      return true
     } catch (error) {
       show(getErrorMessage(error), 'error')
+      return false
     }
+  }
+
+  const syncLiveDelta = async () => {
+    if (!autoStream) return
+    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) return
+
+    const sent = liveSentRef.current
+    const current = liveDraft
+
+    if (current === sent) return
+
+    if (!current.startsWith(sent)) {
+      const ok = await sendWsMessage({ type: 'clear_buffer' })
+      if (!ok) return
+      liveSentRef.current = ''
+    }
+
+    const delta = liveDraft.slice(liveSentRef.current.length)
+    if (!delta) return
+
+    const ok = await sendWsMessage({
+      type: 'append_text',
+      text: delta,
+      flush: false,
+      dictionary_id: dictionaryId,
+      voice_id: voiceId,
+      lora_name: loraName,
+      language: 'ru',
+    })
+
+    if (ok) {
+      liveSentRef.current += delta
+      log(`delta sent: ${JSON.stringify(delta)}`)
+    }
+  }
+
+  useEffect(() => {
+    if (!autoStream) return
+    if (liveStatus !== 'connected') return
+
+    if (autoSendTimerRef.current !== null) {
+      window.clearTimeout(autoSendTimerRef.current)
+    }
+
+    autoSendTimerRef.current = window.setTimeout(() => {
+      void syncLiveDelta()
+    }, 110)
+
+    return () => {
+      if (autoSendTimerRef.current !== null) {
+        window.clearTimeout(autoSendTimerRef.current)
+      }
+    }
+  }, [liveDraft, autoStream, liveStatus, dictionaryId, voiceId, loraName])
+
+  const appendManual = async (flush: boolean) => {
+    const ok = await sendWsMessage({
+      type: 'append_text',
+      text: liveDraft,
+      flush,
+      dictionary_id: dictionaryId,
+      voice_id: voiceId,
+      lora_name: loraName,
+      language: 'ru',
+    })
+    if (ok) log(flush ? 'append_text + flush sent' : 'append_text sent')
   }
 
   const speakOnce = async () => {
-    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
-      show('Сначала подключи WebSocket', 'info')
-      return
-    }
+    const ok = await sendWsMessage({
+      type: 'enqueue_text',
+      text: liveDraft,
+      dictionary_id: dictionaryId,
+      voice_id: voiceId,
+      lora_name: loraName,
+      language: 'ru',
+    })
+    if (ok) log('enqueue_text sent')
+  }
 
-    try {
-      await prepare()
-      websocketRef.current.send(
-        JSON.stringify({
-          type: 'enqueue_text',
-          text: liveDraft,
-          dictionary_id: dictionaryId,
-          voice_id: voiceId,
-          lora_name: loraName,
-          language: 'ru',
-        }),
-      )
-      log('enqueue_text sent')
-    } catch (error) {
-      show(getErrorMessage(error), 'error')
+  const flushBuffer = async () => {
+    const ok = await sendWsMessage({ type: 'flush' })
+    if (ok) log('flush sent')
+  }
+
+  const clearBuffer = async () => {
+    const ok = await sendWsMessage({ type: 'clear_buffer' })
+    if (ok) {
+      liveSentRef.current = ''
+      log('clear_buffer sent')
     }
   }
 
-  const flushBuffer = () => {
-    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
-      show('Сначала подключи WebSocket', 'info')
-      return
-    }
-    websocketRef.current.send(JSON.stringify({ type: 'flush' }))
-  }
+  const resyncLiveText = async () => {
+    const ok = await sendWsMessage({ type: 'clear_buffer' })
+    if (!ok) return
 
-  const clearBuffer = () => {
-    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
-      show('Сначала подключи WebSocket', 'info')
-      return
+    liveSentRef.current = ''
+
+    const ok2 = await sendWsMessage({
+      type: 'append_text',
+      text: liveDraft,
+      flush: false,
+      dictionary_id: dictionaryId,
+      voice_id: voiceId,
+      lora_name: loraName,
+      language: 'ru',
+    })
+
+    if (ok2) {
+      liveSentRef.current = liveDraft
+      log('live text resynced')
     }
-    websocketRef.current.send(JSON.stringify({ type: 'clear_buffer' }))
   }
 
   const preview = async () => {
@@ -299,14 +371,26 @@ export function TestingPage() {
       </section>
 
       <section className="card wide">
-        <h2>Live mode — буфер, инкрементальная подача текста</h2>
+        <h2>Live mode — минимальная задержка через буфер</h2>
+
+        <label className="row" style={{ gap: '8px', alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={autoStream}
+            onChange={(e) => setAutoStream(e.target.checked)}
+          />
+          Auto stream delta while typing
+        </label>
+
         <textarea rows={6} value={liveDraft} onChange={(e) => setLiveDraft(e.target.value)} />
+
         <div className="row wrap" style={{ marginTop: '16px' }}>
-          <button onClick={() => void sendLive(false)}>Append to buffer</button>
-          <button onClick={() => void sendLive(true)}>Append + Flush</button>
+          <button onClick={() => void appendManual(false)}>Append full text</button>
+          <button onClick={() => void appendManual(true)}>Append + Flush</button>
           <button onClick={() => void speakOnce()}>Speak once</button>
-          <button onClick={flushBuffer}>Flush buffer</button>
-          <button onClick={clearBuffer}>Clear buffer</button>
+          <button onClick={() => void flushBuffer()}>Flush buffer</button>
+          <button onClick={() => void clearBuffer()}>Clear buffer</button>
+          <button onClick={() => void resyncLiveText()}>Resync draft</button>
           {isPlaying && (
             <button onClick={stopAudio} style={{ background: '#991b1b' }}>
               Stop Audio

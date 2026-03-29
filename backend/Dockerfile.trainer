@@ -1,0 +1,7 @@
+FROM tts-ml-base:cu128
+
+WORKDIR /app
+
+COPY app ./app
+
+CMD ["python", "-m", "app.trainer.runner"]

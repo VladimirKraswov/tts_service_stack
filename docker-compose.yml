@@ -25,8 +25,10 @@ services:
       retries: 5
 
   api:
+    image: tts-api:dev
     build:
       context: ./backend
+      dockerfile: Dockerfile.api
     env_file:
       - .env
     environment:
@@ -43,20 +45,14 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/data
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     ports:
       - "8000:8000"
 
   trainer:
+    image: tts-trainer:dev
     build:
       context: ./backend
-    command: ["python", "-m", "app.trainer.runner"]
+      dockerfile: Dockerfile.trainer
     env_file:
       - .env
     environment:
@@ -72,13 +68,7 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/data
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    profiles: ["trainer"]
 
   web:
     build:

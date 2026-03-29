@@ -7,14 +7,15 @@ import time
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
-from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.live.base import LiveEngine, LiveSynthesisRequest
+from app.services.live.preprocessor import LiveTextPreprocessor
 from app.services.live.session_buffer import BufferedSegment, LiveTextBuffer
-from app.services.preprocessor import TechnicalPreprocessor
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 @dataclass(slots=True)
@@ -29,7 +30,7 @@ class SessionContext:
 
 
 class LiveSessionManager:
-    def __init__(self, live_engine: LiveEngine, preprocessor: TechnicalPreprocessor) -> None:
+    def __init__(self, live_engine: LiveEngine, preprocessor: LiveTextPreprocessor) -> None:
         self.live_engine = live_engine
         self.preprocessor = preprocessor
         self.sessions: dict[str, SessionContext] = {}
@@ -63,17 +64,16 @@ class LiveSessionManager:
         if ctx is None:
             return
 
-        if ctx.idle_task:
-            ctx.idle_task.cancel()
-        if ctx.consumer_task:
-            ctx.consumer_task.cancel()
+        for task in [ctx.idle_task, ctx.consumer_task]:
+            if task is not None:
+                task.cancel()
 
-        tasks = [task for task in [ctx.idle_task, ctx.consumer_task] if task is not None]
-        for task in tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        for task in [ctx.idle_task, ctx.consumer_task]:
+            if task is not None:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def append_text(
         self,
@@ -87,6 +87,7 @@ class LiveSessionManager:
         flush: bool = False,
     ) -> None:
         ctx = self._get_ctx(session_id)
+
         segments = ctx.buffer.append(
             text,
             dictionary_id=dictionary_id,
@@ -121,6 +122,13 @@ class LiveSessionManager:
         ctx = self._get_ctx(session_id)
         await self._cancel_idle_task(ctx)
         ctx.buffer.clear()
+        while not ctx.queue.empty():
+            try:
+                ctx.queue.get_nowait()
+                ctx.queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
         await self._send_json(ctx, {'type': 'buffer.cleared'})
         await self._send_buffer_state(ctx)
 
@@ -152,7 +160,7 @@ class LiveSessionManager:
 
             try:
                 with SessionLocal() as db:
-                    processed = self.preprocessor.process(
+                    processed_text = self.preprocessor.process(
                         db=db,
                         text=segment.text,
                         dictionary_id=segment.dictionary_id,
@@ -164,13 +172,13 @@ class LiveSessionManager:
                         'type': 'segment.started',
                         'segment_id': segment.segment_id,
                         'raw_text': segment.text,
-                        'processed_text': processed.processed_text,
+                        'processed_text': processed_text,
                     },
                 )
 
                 async for audio in self.live_engine.synthesize_segment(
                     LiveSynthesisRequest(
-                        text=processed.processed_text,
+                        text=processed_text,
                         voice_id=segment.voice_id,
                         lora_name=segment.lora_name,
                         language=segment.language,
@@ -253,9 +261,6 @@ class LiveSessionManager:
             ctx.idle_task = None
 
     async def _idle_flush_later(self, session_id: str) -> None:
-        from app.core.config import get_settings
-
-        settings = get_settings()
         try:
             await asyncio.sleep(settings.live_buffer_idle_ms / 1000.0)
         except asyncio.CancelledError:
