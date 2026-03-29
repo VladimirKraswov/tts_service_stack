@@ -1,19 +1,36 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.schemas.live import LiveBufferAppendRequest, LiveEnqueueRequest, LiveFlushRequest, LivePreviewRequest
+from app.schemas.live import (
+    LiveBufferAppendRequest,
+    LiveEnqueueRequest,
+    LiveFlushRequest,
+    LivePreviewMetaResponse,
+    LivePreviewRequest,
+)
 from app.services.preview.base import PreviewRequest
 from app.services.preprocessor import TechnicalPreprocessor
 
 router = APIRouter(prefix='/live', tags=['live'])
 preprocessor = TechnicalPreprocessor()
+
+
+@router.post('/preview-meta', response_model=LivePreviewMetaResponse)
+async def preview_audio_meta(
+    payload: LivePreviewRequest,
+    db: Session = Depends(get_db),
+) -> LivePreviewMetaResponse:
+    processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
+    return LivePreviewMetaResponse(
+        original_text=payload.text,
+        processed_text=processed.processed_text,
+    )
 
 
 @router.post('/preview')
@@ -33,11 +50,9 @@ async def preview_audio(
                 language=payload.language,
             )
         )
-        processed_header = quote(processed.processed_text, safe='')
         return StreamingResponse(
             iter([wav_bytes]),
             media_type='audio/wav',
-            headers={'X-Processed-Text': processed_header},
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'Preview synthesis failed: {exc}') from exc

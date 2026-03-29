@@ -109,26 +109,28 @@ export const client = {
       body: JSON.stringify(payload),
     }),
   previewLive: async (payload: { text: string; dictionary_id?: number; voice_id?: string; lora_name?: string; language?: string }) => {
-    const response = await fetch('/api/v1/live/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      throw new Error(await readError(response))
-    }
+    const body = JSON.stringify(payload)
 
-    const processedHeader = response.headers.get('X-Processed-Text') || ''
-    let processedText = ''
-    try {
-      processedText = processedHeader ? decodeURIComponent(processedHeader) : ''
-    } catch {
-      processedText = processedHeader
+    const [audioResponse, meta] = await Promise.all([
+      fetch('/api/v1/live/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+      api<{ original_text: string; processed_text: string }>('/api/v1/live/preview-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+    ])
+
+    if (!audioResponse.ok) {
+      throw new Error(await readError(audioResponse))
     }
 
     return {
-      blob: await response.blob(),
-      processedText,
+      blob: await audioResponse.blob(),
+      processedText: meta.processed_text,
     }
   },
   listDatasets: () => api<TrainingDataset[]>('/api/v1/training/datasets'),

@@ -23,3 +23,8 @@ class LiveFlushRequest(BaseModel):
 
 class LivePreviewRequest(LiveOptions):
     text: str = Field(min_length=1)
+
+
+class LivePreviewMetaResponse(BaseModel):
+    original_text: str
+    processed_text: str
