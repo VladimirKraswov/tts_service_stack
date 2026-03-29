@@ -63,8 +63,17 @@ class QwenTTSEngine(TTSEngine):
         self._is_warm = True
 
     async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
+        # Implementation for real streaming could be here if model supports it.
+        # For now, we generate full result and chunk it to raw PCM.
         wav_bytes = await self._generate_wav_bytes(request)
-        parts = self._split_wav_bytes(wav_bytes, target_ms=320)
+        # Extract raw PCM from WAV
+        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav:
+            frames = wav.readframes(wav.getnframes())
+
+        # Split into small chunks for streaming
+        chunk_size = 3200  # ~66ms at 24kHz S16 mono
+        parts = [frames[i:i + chunk_size] for i in range(0, len(frames), chunk_size)]
+
         for seq_no, part in enumerate(parts):
             yield SynthChunk(
                 wav_bytes=part,

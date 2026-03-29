@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     qwen_max_concurrent: int = Field(default=2, alias='QWEN_MAX_CONCURRENT')
     qwen_preview_style: str = Field(default='Четко, спокойно, как технический диктор.', alias='QWEN_PREVIEW_STYLE')
 
+    audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
 
     @property

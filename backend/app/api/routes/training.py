@@ -31,7 +31,17 @@ def upload_dataset(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> TrainingDataset:
-    dataset_dir = settings.datasets_dir / speaker_name.replace(' ', '_')
+    # Validation: only zip/tar/gz
+    allowed_ext = ('.zip', '.tar', '.gz')
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail=f"Invalid file format. Allowed: {', '.join(allowed_ext)}")
+
+    # Secure speaker name to prevent path traversal
+    safe_speaker_name = "".join([c for c in speaker_name if c.isalnum() or c in (' ', '_', '-')]).strip().replace(' ', '_')
+    if not safe_speaker_name:
+        safe_speaker_name = "default_speaker"
+
+    dataset_dir = settings.datasets_dir / safe_speaker_name
     saved_path = save_upload(file, dataset_dir)
     dataset = TrainingDataset(
         name=name,

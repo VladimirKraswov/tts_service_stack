@@ -17,6 +17,7 @@ from app.db.init_db import init_db
 from app.services.live_sessions import LiveSessionManager
 from app.services.preprocessor import TechnicalPreprocessor
 from app.services.tts.factory import get_tts_engine
+import os
 
 settings = get_settings()
 configure_logging()
@@ -24,7 +25,8 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    if not os.getenv("TESTING"):
+        init_db()
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     preprocessor = TechnicalPreprocessor()
     tts_engine = get_tts_engine()

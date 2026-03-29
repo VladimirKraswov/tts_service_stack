@@ -26,7 +26,10 @@ class TechnicalPreprocessor:
             (r"\bHTTP\b", "эйч ти ти пи"),
             (r"\bHTTPS\b", "эйч ти ти пи эс"),
             (r"\bSQL\b", "эс кью эл"),
+            (r"\b(REST|RESTful)\b", "рест"),
+            (r"\bCI/CD\b", "си ай си ди"),
             (r"\bv(\d+)\.(\d+)\.(\d+)\b", r"версия \1.\2.\3"),
+            (r"\bUI/UX\b", "ю ай ю икс"),
         ]
 
     def process(self, db: Session, text: str, dictionary_id: int | None = None) -> ProcessedPayload:
@@ -90,9 +93,19 @@ class TechnicalPreprocessor:
             dictionary = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
         if dictionary is None or not dictionary.entries:
             return text
+
+        # Sort by length descending to match longer phrases first
         entries = sorted(dictionary.entries, key=lambda entry: len(entry.source_text), reverse=True)
         for entry in entries:
-            text = re.sub(re.escape(entry.source_text), entry.spoken_text, text)
+            # Using \b word boundaries and IGNORECASE to be more robust
+            # We escape the source text but wrap it in \b if it's alphanumeric
+            pattern = re.escape(entry.source_text)
+            if entry.source_text[0].isalnum():
+                pattern = r"\b" + pattern
+            if entry.source_text[-1].isalnum():
+                pattern = pattern + r"\b"
+
+            text = re.compile(pattern, re.IGNORECASE).sub(entry.spoken_text, text)
         return text
 
     def _chunk(self, text: str) -> list[str]:

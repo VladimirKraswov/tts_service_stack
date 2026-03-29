@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { client, type Dictionary, type Voice } from '../api/client'
+import { AudioPlayerStatus, useAudioPlayer } from '../components/AudioPlayer'
+import { useToast } from '../components/Toast'
 
 function randomSessionId() {
   return `session-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function TestingPage() {
+  const { show } = useToast()
+  const { addChunk, stop: stopAudio, isPlaying, queueSize } = useAudioPlayer()
   const [sessionId, setSessionId] = useState(randomSessionId())
   const [text, setText] = useState('В Python функция __init__ вызывается при создании объекта. В React часто используют useEffect.')
   const [dictionaries, setDictionaries] = useState<Dictionary[]>([])
@@ -19,9 +23,9 @@ export function TestingPage() {
   const [quickSource, setQuickSource] = useState('FastAPI')
   const [quickSpoken, setQuickSpoken] = useState('Фаст Эй Пи Ай')
   const [status, setStatus] = useState('disconnected')
+  const [isEnqueuing, setIsEnqueuing] = useState(false)
+  const [isPreviewing, setIsPreviewing] = useState(false)
   const websocketRef = useRef<WebSocket | null>(null)
-  const audioQueueRef = useRef<string[]>([])
-  const playingRef = useRef(false)
 
   const voiceOptions = useMemo(() => voices.filter((voice) => voice.kind === 'voice'), [voices])
   const loraOptions = useMemo(() => voices.filter((voice) => voice.kind === 'lora'), [voices])
@@ -42,23 +46,6 @@ export function TestingPage() {
 
   const log = (message: string) => setEvents((prev) => [message, ...prev].slice(0, 60))
 
-  const playNextAudio = () => {
-    if (playingRef.current || audioQueueRef.current.length === 0) return
-    const next = audioQueueRef.current.shift()
-    if (!next) return
-    playingRef.current = true
-    const audio = new Audio(next)
-    audio.onended = () => {
-      playingRef.current = false
-      playNextAudio()
-    }
-    audio.onerror = () => {
-      playingRef.current = false
-      playNextAudio()
-    }
-    void audio.play()
-  }
-
   const connect = () => {
     if (websocketRef.current) return
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -78,9 +65,9 @@ export function TestingPage() {
       const message = JSON.parse(event.data)
       log(`${message.type}: ${JSON.stringify(message)}`)
       if (message.type === 'audio.chunk' && message.audio_b64) {
-        const dataUrl = `data:${message.mime};base64,${message.audio_b64}`
-        audioQueueRef.current.push(dataUrl)
-        playNextAudio()
+        void addChunk(message)
+      } else if (message.type === 'job.error') {
+        show(message.error || 'Ошибка синтеза', 'error')
       }
     }
   }
@@ -89,22 +76,34 @@ export function TestingPage() {
     websocketRef.current?.close()
     websocketRef.current = null
     setStatus('disconnected')
+    stopAudio()
   }
 
   const sendViaRest = async () => {
-    await client.enqueueLive({
-      session_id: sessionId,
-      text,
-      dictionary_id: dictionaryId,
-      voice_id: voiceId,
-      lora_name: loraName,
-      language: 'ru',
-    })
-    log('REST enqueue success')
+    if (isEnqueuing) return
+    setIsEnqueuing(true)
+    try {
+      await client.enqueueLive({
+        session_id: sessionId,
+        text,
+        dictionary_id: dictionaryId,
+        voice_id: voiceId,
+        lora_name: loraName,
+        language: 'ru',
+      })
+      log('REST enqueue success')
+    } catch (e) {
+      show('Ошибка enqueue через API', 'error')
+    } finally {
+      setIsEnqueuing(false)
+    }
   }
 
   const sendViaWs = () => {
-    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) return
+    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
+      show('WebSocket не подключен', 'info')
+      return
+    }
     websocketRef.current.send(
       JSON.stringify({
         type: 'enqueue_text',
@@ -120,34 +119,62 @@ export function TestingPage() {
 
   const quickAddToDictionary = async () => {
     if (!dictionaryId) return
-    await client.addDictionaryEntry(dictionaryId, { source_text: quickSource, spoken_text: quickSpoken })
-    await refreshData()
-    log(`Added entry ${quickSource} -> ${quickSpoken}`)
+    try {
+      await client.addDictionaryEntry(dictionaryId, { source_text: quickSource, spoken_text: quickSpoken })
+      await refreshData()
+      show('Запись добавлена в словарь', 'success')
+      log(`Added entry ${quickSource} -> ${quickSpoken}`)
+    } catch (e) {
+      show('Ошибка добавления в словарь', 'error')
+    }
   }
 
   const preview = async () => {
-    const result = await client.previewLive({ text, dictionary_id: dictionaryId, voice_id: voiceId, lora_name: loraName })
-    const url = URL.createObjectURL(result.blob)
-    setPreviewUrl(url)
-    setPreviewProcessedText(result.processedText)
+    if (isPreviewing) return
+    setIsPreviewing(true)
+    try {
+      const result = await client.previewLive({ text, dictionary_id: dictionaryId, voice_id: voiceId, lora_name: loraName })
+      const url = URL.createObjectURL(result.blob)
+      setPreviewUrl(url)
+      setPreviewProcessedText(result.processedText)
+    } catch (e) {
+      show('Ошибка превью', 'error')
+    } finally {
+      setIsPreviewing(false)
+    }
   }
 
   return (
     <div className="page-grid">
       <section className="card wide">
-        <h2>Модуль тестирования</h2>
-        <label>Session ID</label>
-        <div className="row">
-          <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
-          <button onClick={() => setSessionId(randomSessionId())}>Новая сессия</button>
-          <button onClick={connect}>Подключить live</button>
-          <button onClick={disconnect}>Отключить</button>
+        <div className="row space-between">
+          <h2>Модуль тестирования</h2>
+          <AudioPlayerStatus isPlaying={isPlaying} queueSize={queueSize} />
         </div>
-        <p className="muted">Статус: {status}</p>
-        <label>Текст / буфер</label>
-        <textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
+
         <div className="grid two">
           <div>
+            <label>Session ID</label>
+            <div className="row">
+              <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
+              <button onClick={() => setSessionId(randomSessionId())}>New</button>
+            </div>
+          </div>
+          <div>
+            <label>Live Connection</label>
+            <div className="row">
+              <button onClick={connect} disabled={status === 'connected'}>Connect</button>
+              <button onClick={disconnect} disabled={status === 'disconnected'}>Disconnect</button>
+              <span className={`badge badge-${status}`}>{status}</span>
+            </div>
+          </div>
+        </div>
+
+        <label>Текст / буфер</label>
+        <textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
+
+        <div className="grid two">
+          <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: '15px' }}>
             <label>Словарь</label>
             <select value={dictionaryId} onChange={(e) => setDictionaryId(Number(e.target.value))}>
               {dictionaries.map((dictionary) => (
@@ -155,27 +182,33 @@ export function TestingPage() {
               ))}
             </select>
           </div>
-          <div>
-            <label>Голос</label>
-            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
-              {voiceOptions.map((voice) => (
-                <option key={voice.id} value={voice.name}>{voice.display_name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label>LoRA</label>
-            <select value={loraName} onChange={(e) => setLoraName(e.target.value)}>
-              {loraOptions.map((voice) => (
-                <option key={voice.id} value={voice.name}>{voice.display_name}</option>
-              ))}
-            </select>
+          <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: '15px' }}>
+            <div className="grid two">
+              <div>
+                <label>Голос</label>
+                <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
+                  {voiceOptions.map((voice) => (
+                    <option key={voice.id} value={voice.name}>{voice.display_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>LoRA / Стиль</label>
+                <select value={loraName} onChange={(e) => setLoraName(e.target.value)}>
+                  {loraOptions.map((voice) => (
+                    <option key={voice.id} value={voice.name}>{voice.display_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="row wrap">
-          <button onClick={sendViaRest}>Положить в FIFO через API</button>
-          <button onClick={sendViaWs}>Положить в FIFO через WebSocket</button>
-          <button onClick={preview}>Проверить произношение</button>
+
+        <div className="row wrap" style={{ marginTop: '20px' }}>
+          <button onClick={sendViaRest} disabled={isEnqueuing}>Enqueue (REST)</button>
+          <button onClick={sendViaWs}>Enqueue (WebSocket)</button>
+          <button onClick={preview} disabled={isPreviewing}>Preview (WAV)</button>
+          {isPlaying && <button onClick={stopAudio} style={{ background: '#991b1b' }}>Stop Audio</button>}
         </div>
         {previewProcessedText && (
           <div className="preview-box">

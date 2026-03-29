@@ -11,12 +11,14 @@ from fastapi import WebSocket
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.buffer import RedisFifoBuffer
 from app.services.preprocessor import TechnicalPreprocessor
 from app.services.tts.base import SynthRequest, TTSEngine
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 @dataclass(slots=True)
@@ -76,40 +78,49 @@ class LiveSessionManager:
                 'chunks': len(processed.chunks),
             })
             first_audio_sent = False
-            for chunk_index, chunk_text in enumerate(processed.chunks):
-                await websocket.send_json({
-                    'type': 'chunk.ready',
-                    'job_id': job_id,
-                    'chunk_index': chunk_index,
-                    'text': chunk_text,
-                })
-                async for audio in self.tts_engine.synthesize_stream(
-                    SynthRequest(
-                        text=chunk_text,
-                        voice_id=payload.get('voice_id'),
-                        lora_name=payload.get('lora_name'),
-                        language=payload.get('language', 'ru'),
-                    )
-                ):
-                    if not first_audio_sent:
-                        first_audio_sent = True
-                        await websocket.send_json({
-                            'type': 'metrics.first_audio',
-                            'job_id': job_id,
-                            'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
-                        })
+            try:
+                for chunk_index, chunk_text in enumerate(processed.chunks):
                     await websocket.send_json({
-                        'type': 'audio.chunk',
+                        'type': 'chunk.ready',
                         'job_id': job_id,
                         'chunk_index': chunk_index,
-                        'seq_no': audio.seq_no,
-                        'text': audio.text,
-                        'audio_b64': base64.b64encode(audio.wav_bytes).decode('ascii'),
-                        'mime': 'audio/wav',
-                        'is_last': audio.is_last,
+                        'text': chunk_text,
                     })
-            await websocket.send_json({
-                'type': 'job.done',
-                'job_id': job_id,
-                'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
-            })
+                    async for audio in self.tts_engine.synthesize_stream(
+                        SynthRequest(
+                            text=chunk_text,
+                            voice_id=payload.get('voice_id'),
+                            lora_name=payload.get('lora_name'),
+                            language=payload.get('language', 'ru'),
+                        )
+                    ):
+                        if not first_audio_sent:
+                            first_audio_sent = True
+                            await websocket.send_json({
+                                'type': 'metrics.first_audio',
+                                'job_id': job_id,
+                                'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                            })
+                        await websocket.send_json({
+                            'type': 'audio.chunk',
+                            'job_id': job_id,
+                            'chunk_index': chunk_index,
+                            'seq_no': audio.seq_no,
+                            'text': audio.text,
+                            'audio_b64': base64.b64encode(audio.wav_bytes).decode('ascii'),
+                                'sample_rate': settings.audio_sample_rate,
+                            'mime': 'audio/l16',
+                            'is_last': audio.is_last,
+                        })
+                await websocket.send_json({
+                    'type': 'job.done',
+                    'job_id': job_id,
+                    'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                })
+            except Exception as e:
+                logger.exception("Synthesis failed for session %s", session_id)
+                await websocket.send_json({
+                    'type': 'job.error',
+                    'job_id': job_id,
+                    'error': str(e),
+                })
