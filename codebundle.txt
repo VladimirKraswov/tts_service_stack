@@ -1,7 +1,7 @@
 === CODE BUNDLE ===
 root: /Volumes/Extend/work/tts_service_stack
 ignore: .codebundleignore
-generated: 2026-03-29T18:12:27.158Z
+generated: 2026-03-29T22:20:32.491Z
 
 
 
@@ -9,8 +9,8 @@ path: /.env
 ----------------------------------------
 TTS_BACKEND=qwen
 QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+QWEN_ATTN_IMPLEMENTATION=flash_attention_2
 QWEN_DTYPE=bfloat16
-QWEN_ATTN_IMPLEMENTATION=sdpa
 QWEN_COMPILE=false
 QWEN_MAX_CONCURRENT=2
 QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
@@ -300,19 +300,47 @@ path: /backend/app/api/routes/live.py
 from __future__ import annotations
 
 import json
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.schemas.live import LiveBufferAppendRequest, LiveEnqueueRequest, LiveFlushRequest, LivePreviewRequest
+from app.schemas.live import (
+    LiveBufferAppendRequest,
+    LiveEnqueueRequest,
+    LiveFlushRequest,
+    LivePreviewMetaResponse,
+    LivePreviewRequest,
+)
 from app.services.preview.base import PreviewRequest
 from app.services.preprocessor import TechnicalPreprocessor
 
 router = APIRouter(prefix='/live', tags=['live'])
 preprocessor = TechnicalPreprocessor()
+
+MAX_PREVIEW_CHARS = 400
+
+
+def _validate_preview_text(text: str) -> None:
+    if len(text.strip()) > MAX_PREVIEW_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Preview text is too long. Max {MAX_PREVIEW_CHARS} characters.',
+        )
+
+
+@router.post('/preview-meta', response_model=LivePreviewMetaResponse)
+async def preview_audio_meta(
+    payload: LivePreviewRequest,
+    db: Session = Depends(get_db),
+) -> LivePreviewMetaResponse:
+    _validate_preview_text(payload.text)
+    processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
+    return LivePreviewMetaResponse(
+        original_text=payload.text,
+        processed_text=processed.processed_text,
+    )
 
 
 @router.post('/preview')
@@ -321,6 +349,8 @@ async def preview_audio(
     payload: LivePreviewRequest,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    _validate_preview_text(payload.text)
+
     try:
         processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
         engine = request.app.state.preview_engine
@@ -332,12 +362,12 @@ async def preview_audio(
                 language=payload.language,
             )
         )
-        processed_header = quote(processed.processed_text, safe='')
         return StreamingResponse(
             iter([wav_bytes]),
             media_type='audio/wav',
-            headers={'X-Processed-Text': processed_header},
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'Preview synthesis failed: {exc}') from exc
 
@@ -1004,6 +1034,11 @@ class LiveFlushRequest(BaseModel):
 
 class LivePreviewRequest(LiveOptions):
     text: str = Field(min_length=1)
+
+
+class LivePreviewMetaResponse(BaseModel):
+    original_text: str
+    processed_text: str
 
 
 path: /backend/app/schemas/training.py
@@ -3133,24 +3168,85 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 path: /backend/Dockerfile.base
 ----------------------------------------
-FROM python:3.12-slim
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 
 WORKDIR /opt/tts-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
     build-essential \
-    ffmpeg \
     git \
+    ffmpeg \
     libsndfile1 \
     sox \
     && rm -rf /var/lib/apt/lists/*
 
+RUN ln -sf /usr/bin/python3.12 /usr/bin/python && \
+    python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
 COPY requirements.txt /tmp/requirements.txt
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
+RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cu128 \
       torch torchvision torchaudio && \
+    MAX_JOBS=4 pip install --no-cache-dir -U flash-attn --no-build-isolation && \
+    pip install --no-cache-dir -r /tmp/requirements.txt
+
+
+path: /backend/Dockerfile.base.flash
+----------------------------------------
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+
+# === Настройки для сборки flash-attn ===
+ENV MAX_JOBS=24
+ENV TORCH_CUDA_ARCH_LIST="12.0"
+
+WORKDIR /opt/tts-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    ninja-build \
+    git \
+    ffmpeg \
+    libsndfile1 \
+    sox \
+    && rm -rf /var/lib/apt/lists/*
+
+# Настраиваем python и обновляем pip
+RUN ln -sf /usr/bin/python3 /usr/bin/python && \
+    python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# ←←← ИСПРАВЛЕНИЕ ЗДЕСЬ ←←←
+COPY backend/requirements.txt /tmp/requirements.txt
+
+# Установка PyTorch + flash-attn + остальные пакеты
+RUN pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cu128 \
+      torch torchvision torchaudio && \
+    \
+    # flash-attn — самый тяжёлый этап
+    MAX_JOBS=${MAX_JOBS} \
+    TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}" \
+    CMAKE_BUILD_PARALLEL_LEVEL=${MAX_JOBS} \
+    pip install --no-cache-dir --no-build-isolation -U flash-attn && \
+    \
+    # Остальные зависимости
     pip install --no-cache-dir -r /tmp/requirements.txt
 
 
@@ -3622,26 +3718,28 @@ export const client = {
       body: JSON.stringify(payload),
     }),
   previewLive: async (payload: { text: string; dictionary_id?: number; voice_id?: string; lora_name?: string; language?: string }) => {
-    const response = await fetch('/api/v1/live/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      throw new Error(await readError(response))
-    }
+    const body = JSON.stringify(payload)
 
-    const processedHeader = response.headers.get('X-Processed-Text') || ''
-    let processedText = ''
-    try {
-      processedText = processedHeader ? decodeURIComponent(processedHeader) : ''
-    } catch {
-      processedText = processedHeader
+    const [audioResponse, meta] = await Promise.all([
+      fetch('/api/v1/live/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+      api<{ original_text: string; processed_text: string }>('/api/v1/live/preview-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+    ])
+
+    if (!audioResponse.ok) {
+      throw new Error(await readError(audioResponse))
     }
 
     return {
-      blob: await response.blob(),
-      processedText,
+      blob: await audioResponse.blob(),
+      processedText: meta.processed_text,
     }
   },
   listDatasets: () => api<TrainingDataset[]>('/api/v1/training/datasets'),
@@ -4663,8 +4761,8 @@ server {
 
 
 === SUMMARY ===
-included: 73
+included: 74
 skipped(binary): 0
 skipped(size): 0
 skipped(ext): 0
-totalBytes(approx): 146455
+totalBytes(approx): 149189
