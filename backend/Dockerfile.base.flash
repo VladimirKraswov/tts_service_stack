@@ -8,7 +8,7 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 # === Настройки для быстрой сборки flash-attn ===
 # ENV MAX_JOBS=48
 # ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;10.0;12.0"
-ENV MAX_JOBS=40
+ENV MAX_JOBS=20
 # Blackwell (RTX 5090)
 ENV TORCH_CUDA_ARCH_LIST="12.0"   
 
