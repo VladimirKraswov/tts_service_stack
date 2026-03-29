@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from app.services.tts.factory import get_tts_engine
 
 router = APIRouter(prefix='/live', tags=['live'])
 preprocessor = TechnicalPreprocessor()
+logger = logging.getLogger(__name__)
 
 
 @router.post('/enqueue')
@@ -37,18 +39,28 @@ async def enqueue_live(request: Request, payload: LiveEnqueueRequest) -> dict[st
 
 @router.post('/preview')
 async def preview_live_audio(payload: LivePreviewRequest, db: Session = Depends(get_db)) -> StreamingResponse:
-    processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
-    engine = get_tts_engine()
-    wav_bytes = await engine.synthesize_preview(
-        SynthRequest(
-            text=processed.processed_text,
-            voice_id=payload.voice_id,
-            lora_name=payload.lora_name,
-            language=payload.language,
+    try:
+        processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
+        engine = get_tts_engine()
+        wav_bytes = await engine.synthesize_preview(
+            SynthRequest(
+                text=processed.processed_text,
+                voice_id=payload.voice_id,
+                lora_name=payload.lora_name,
+                language=payload.language,
+            )
         )
-    )
-    processed_header = quote(processed.processed_text, safe='')
-    return StreamingResponse(iter([wav_bytes]), media_type='audio/wav', headers={'X-Processed-Text': processed_header})
+        processed_header = quote(processed.processed_text, safe='')
+        return StreamingResponse(
+            iter([wav_bytes]),
+            media_type='audio/wav',
+            headers={'X-Processed-Text': processed_header},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception('Preview synthesis failed')
+        raise HTTPException(status_code=503, detail=f'TTS preview failed: {exc}') from exc
 
 
 @router.websocket('/ws/{session_id}')

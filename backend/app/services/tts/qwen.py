@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import io
 import logging
 import wave
@@ -46,7 +47,12 @@ LANGUAGE_ALIASES = {
     'pt': 'Portuguese',
     'es': 'Spanish',
     'it': 'Italian',
+    'auto': 'Auto',
 }
+
+
+def _normalize_name(value: str) -> str:
+    return value.strip().lower().replace(' ', '_')
 
 
 class QwenTTSEngine(TTSEngine):
@@ -57,21 +63,21 @@ class QwenTTSEngine(TTSEngine):
         self._lock = asyncio.Lock()
         self._semaphore = asyncio.Semaphore(max(1, self.settings.qwen_max_concurrent))
         self._is_warm = False
+        self._supported_speakers: dict[str, str] = {}
+        self._supported_languages: dict[str, str] = {}
+        self._instruction_kwarg: str | None = None
 
     async def warmup(self) -> None:
         await self._ensure_model()
         self._is_warm = True
 
     async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
-        # Implementation for real streaming could be here if model supports it.
-        # For now, we generate full result and chunk it to raw PCM.
         wav_bytes = await self._generate_wav_bytes(request)
-        # Extract raw PCM from WAV
-        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav:
-            frames = wav.readframes(wav.getnframes())
 
-        # Split into small chunks for streaming
-        chunk_size = 3200  # ~66ms at 24kHz S16 mono
+        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav_file:
+            frames = wav_file.readframes(wav_file.getnframes())
+
+        chunk_size = 3200  # ~66 ms for 24kHz S16 mono
         parts = [frames[i:i + chunk_size] for i in range(0, len(frames), chunk_size)]
 
         for seq_no, part in enumerate(parts):
@@ -93,12 +99,22 @@ class QwenTTSEngine(TTSEngine):
     async def _ensure_model(self) -> None:
         if self._model is not None:
             return
+
         async with self._lock:
             if self._model is not None:
                 return
 
-            from qwen_tts import Qwen3TTSModel
-            import torch
+            try:
+                from qwen_tts import Qwen3TTSModel
+            except Exception as exc:
+                raise RuntimeError(
+                    'Python package "qwen-tts" is not available in the API container.'
+                ) from exc
+
+            try:
+                import torch
+            except Exception as exc:
+                raise RuntimeError('PyTorch is not available in the API container.') from exc
 
             dtype_map = {
                 'bfloat16': torch.bfloat16,
@@ -115,31 +131,102 @@ class QwenTTSEngine(TTSEngine):
                 self.settings.qwen_attn_implementation,
             )
 
-            self._model = Qwen3TTSModel.from_pretrained(
-                self.settings.qwen_model_name,
-                device_map=self.settings.qwen_device,
-                dtype=dtype,
-                attn_implementation=self.settings.qwen_attn_implementation,
-            )
-
-            supported = []
             try:
-                supported = list(self._model.get_supported_speakers())
+                self._model = Qwen3TTSModel.from_pretrained(
+                    self.settings.qwen_model_name,
+                    device_map=self.settings.qwen_device,
+                    dtype=dtype,
+                    attn_implementation=self.settings.qwen_attn_implementation,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f'Failed to load Qwen model "{self.settings.qwen_model_name}" on device '
+                    f'"{self.settings.qwen_device}": {exc}'
+                ) from exc
+
+            try:
+                speakers = list(self._model.get_supported_speakers())
+                self._supported_speakers = {
+                    _normalize_name(speaker): speaker for speaker in speakers
+                }
+                if speakers:
+                    logger.info('Qwen speakers available: %s', ', '.join(speakers))
             except Exception:
                 logger.warning('Could not fetch supported speakers from qwen-tts model')
-            if supported:
-                logger.info('Qwen speakers available: %s', ', '.join(supported))
+                self._supported_speakers = {}
+
+            try:
+                languages = list(self._model.get_supported_languages())
+                self._supported_languages = {
+                    _normalize_name(language): language for language in languages
+                }
+                if languages:
+                    logger.info('Qwen languages available: %s', ', '.join(languages))
+            except Exception:
+                logger.warning('Could not fetch supported languages from qwen-tts model')
+                self._supported_languages = {}
+
+            try:
+                signature = inspect.signature(self._model.generate_custom_voice)
+                params = signature.parameters
+                if 'instruct' in params:
+                    self._instruction_kwarg = 'instruct'
+                elif 'instruction' in params:
+                    self._instruction_kwarg = 'instruction'
+                else:
+                    self._instruction_kwarg = None
+            except Exception:
+                self._instruction_kwarg = 'instruct'
+
+    def _resolve_speaker(self, voice_id: str | None) -> str:
+        requested = VOICE_ALIASES.get(voice_id or '', voice_id or 'Ryan')
+        if not self._supported_speakers:
+            return requested
+
+        normalized = _normalize_name(requested)
+        matched = self._supported_speakers.get(normalized)
+        if matched:
+            return matched
+
+        fallback = self._supported_speakers.get('ryan')
+        if fallback:
+            logger.warning(
+                'Requested speaker "%s" is not supported by loaded model. Fallback to "%s".',
+                requested,
+                fallback,
+            )
+            return fallback
+
+        return requested
+
+    def _resolve_language(self, language: str | None) -> str:
+        requested = LANGUAGE_ALIASES.get((language or 'ru').lower(), language or 'Russian')
+        if not self._supported_languages:
+            return requested
+
+        normalized = _normalize_name(requested)
+        matched = self._supported_languages.get(normalized)
+        if matched:
+            return matched
+
+        auto = self._supported_languages.get('auto')
+        if auto:
+            logger.warning(
+                'Requested language "%s" is not supported by loaded model. Fallback to "%s".',
+                requested,
+                auto,
+            )
+            return auto
+
+        return requested
 
     def _generate_wav_bytes_sync(self, request: SynthRequest) -> bytes:
-        speaker = VOICE_ALIASES.get(request.voice_id or '', request.voice_id or 'Ryan')
-        speaker = speaker.lower().replace(' ', '_')
+        if self._model is None:
+            raise RuntimeError('Qwen model is not loaded.')
 
-        language = LANGUAGE_ALIASES.get(
-            (request.language or 'ru').lower(),
-            request.language or 'Russian',
-        )
-
-        instruct = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
+        speaker = self._resolve_speaker(request.voice_id)
+        language = self._resolve_language(request.language)
+        instruct_text = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
 
         logger.info(
             'Qwen synth start speaker=%s language=%s chars=%s lora=%s',
@@ -149,18 +236,23 @@ class QwenTTSEngine(TTSEngine):
             request.lora_name,
         )
 
+        kwargs = {
+            'text': request.text.strip(),
+            'language': language,
+            'speaker': speaker,
+            'max_new_tokens': 2048,
+        }
+
+        if instruct_text and self._instruction_kwarg:
+            kwargs[self._instruction_kwarg] = instruct_text.strip()
+
         try:
-            wavs, sr = self._model.generate_custom_voice(
-                text=request.text.strip(),
-                language=language,
-                speaker=speaker,
-                instruct=instruct.strip() if instruct else None,
-                non_streaming_mode=True,
-                max_new_tokens=2048,
-            )
-        except Exception:
+            wavs, sr = self._model.generate_custom_voice(**kwargs)
+        except Exception as exc:
             logger.exception('Qwen generate_custom_voice failed')
-            raise
+            raise RuntimeError(
+                f'Qwen synth failed for speaker="{speaker}", language="{language}": {exc}'
+            ) from exc
 
         self._sample_rate = int(sr)
 
@@ -171,7 +263,6 @@ class QwenTTSEngine(TTSEngine):
                 raise RuntimeError('Qwen returned empty wav list')
             audio = wavs[0]
         else:
-            logger.error('Unexpected Qwen output type: %s', type(wavs))
             raise TypeError(f'Unexpected wavs type: {type(wavs)}')
 
         if isinstance(audio, list):
@@ -189,26 +280,3 @@ class QwenTTSEngine(TTSEngine):
         buffer = io.BytesIO()
         sf.write(buffer, audio, sr, format='WAV', subtype='PCM_16')
         return buffer.getvalue()
-
-    def _split_wav_bytes(self, wav_bytes: bytes, target_ms: int = 320) -> list[bytes]:
-        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav:
-            channels = wav.getnchannels()
-            sample_width = wav.getsampwidth()
-            sample_rate = wav.getframerate()
-            frames = wav.readframes(wav.getnframes())
-
-        bytes_per_frame = channels * sample_width
-        frames_per_part = max(1, int(sample_rate * (target_ms / 1000.0)))
-        chunk_size = frames_per_part * bytes_per_frame
-
-        parts: list[bytes] = []
-        for start in range(0, len(frames), chunk_size):
-            raw = frames[start:start + chunk_size]
-            out = io.BytesIO()
-            with wave.open(out, 'wb') as wav_out:
-                wav_out.setnchannels(channels)
-                wav_out.setsampwidth(sample_width)
-                wav_out.setframerate(sample_rate)
-                wav_out.writeframes(raw)
-            parts.append(out.getvalue())
-        return parts or [wav_bytes]

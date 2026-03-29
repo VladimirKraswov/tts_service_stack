@@ -1,0 +1,3069 @@
+=== CODE BUNDLE ===
+root: /Volumes/Extend/work/tts_service_stack
+ignore: .codebundleignore
+generated: 2026-03-29T14:29:35.433Z
+
+
+
+path: /.env
+----------------------------------------
+TTS_BACKEND=qwen
+QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+QWEN_DTYPE=bfloat16
+QWEN_ATTN_IMPLEMENTATION=sdpa
+QWEN_COMPILE=false
+QWEN_MAX_CONCURRENT=2
+QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
+
+
+path: /.env.example
+----------------------------------------
+POSTGRES_DB=tts_admin
+POSTGRES_USER=tts_admin
+POSTGRES_PASSWORD=tts_admin_change_me
+DATABASE_URL=postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin
+REDIS_URL=redis://redis:6379/0
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_TITLE=TTS Admin Stack
+API_PREFIX=/api/v1
+DATA_DIR=/data
+TTS_BACKEND=qwen
+QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+QWEN_DEVICE=cuda:0
+QWEN_DTYPE=bfloat16
+QWEN_ATTN_IMPLEMENTATION=sdpa
+QWEN_COMPILE=false
+QWEN_MAX_CONCURRENT=2
+QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
+TRAINING_POLL_SECONDS=5
+FRONTEND_ORIGIN=http://localhost:8080
+
+
+path: /.gitignore
+----------------------------------------
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+
+# Databases
+*.db
+*.sqlite3
+
+# Node / Frontend
+node_modules/
+dist/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+/data/
+/data_test/
+backend/.env.test
+
+
+path: /.vscode/c_cpp_properties.json
+----------------------------------------
+{
+  "configurations": [
+    {
+      "name": "STM32",
+      "includePath": [
+        "${workspaceFolder}/Core/Inc",
+        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+        "${workspaceFolder}/Drivers/CMSIS/Include",
+        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32F407xx"
+      ],
+      "compilerPath": "/Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.macos64_1.0.100.202509120712/tools/bin/arm-none-eabi-gcc",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "gcc-arm",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/Core/Inc",
+          "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+          "${workspaceFolder}/Drivers/CMSIS/Include",
+          "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+          "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ],
+  "version": 4
+}
+
+
+path: /.vscode copy/c_cpp_properties.json
+----------------------------------------
+{
+  "configurations": [
+    {
+      "name": "STM32",
+      "includePath": [
+        "${workspaceFolder}/Core/Inc",
+        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+        "${workspaceFolder}/Drivers/CMSIS/Include",
+        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32F407xx"
+      ],
+      "compilerPath": "/Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.macos64_1.0.100.202509120712/tools/bin/arm-none-eabi-gcc",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "gcc-arm",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/Core/Inc",
+          "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+          "${workspaceFolder}/Drivers/CMSIS/Include",
+          "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+          "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ],
+  "version": 4
+}
+
+
+path: /backend/.env.test
+----------------------------------------
+DATA_DIR=./data_test
+TTS_BACKEND=mock
+
+
+path: /backend/app/__init__.py
+----------------------------------------
+
+
+
+path: /backend/app/api/deps.py
+----------------------------------------
+from collections.abc import Generator
+
+from sqlalchemy.orm import Session
+
+from app.db.session import SessionLocal
+
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+path: /backend/app/api/routes/dictionaries.py
+----------------------------------------
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.api.deps import get_db
+from app.models.dictionary import Dictionary, DictionaryEntry
+from app.schemas.dictionary import (
+    DictionaryCreate,
+    DictionaryEntryCreate,
+    DictionaryRead,
+    PronunciationPreviewRequest,
+    PronunciationPreviewResponse,
+)
+from app.services.preprocessor import TechnicalPreprocessor
+
+router = APIRouter(prefix='/dictionaries', tags=['dictionaries'])
+preprocessor = TechnicalPreprocessor()
+
+
+@router.get('', response_model=list[DictionaryRead])
+def list_dictionaries(db: Session = Depends(get_db)) -> list[Dictionary]:
+    return list(db.scalars(select(Dictionary).options(selectinload(Dictionary.entries)).order_by(Dictionary.id)))
+
+
+@router.post('', response_model=DictionaryRead)
+def create_dictionary(payload: DictionaryCreate, db: Session = Depends(get_db)) -> Dictionary:
+    dictionary = Dictionary(**payload.model_dump())
+    db.add(dictionary)
+    db.commit()
+    db.refresh(dictionary)
+    return dictionary
+
+
+@router.get('/{dictionary_id}', response_model=DictionaryRead)
+def get_dictionary(dictionary_id: int, db: Session = Depends(get_db)) -> Dictionary:
+    dictionary = db.scalar(select(Dictionary).options(selectinload(Dictionary.entries)).where(Dictionary.id == dictionary_id))
+    if dictionary is None:
+        raise HTTPException(status_code=404, detail='Dictionary not found')
+    return dictionary
+
+
+@router.post('/{dictionary_id}/entries', response_model=DictionaryRead)
+def add_entry(dictionary_id: int, payload: DictionaryEntryCreate, db: Session = Depends(get_db)) -> Dictionary:
+    dictionary = db.scalar(select(Dictionary).options(selectinload(Dictionary.entries)).where(Dictionary.id == dictionary_id))
+    if dictionary is None:
+        raise HTTPException(status_code=404, detail='Dictionary not found')
+    entry = DictionaryEntry(dictionary_id=dictionary_id, **payload.model_dump())
+    db.add(entry)
+    db.commit()
+    return db.scalar(select(Dictionary).options(selectinload(Dictionary.entries)).where(Dictionary.id == dictionary_id))
+
+
+@router.delete('/{dictionary_id}/entries/{entry_id}', response_model=DictionaryRead)
+def delete_entry(dictionary_id: int, entry_id: int, db: Session = Depends(get_db)) -> Dictionary:
+    entry = db.get(DictionaryEntry, entry_id)
+    if entry is None or entry.dictionary_id != dictionary_id:
+        raise HTTPException(status_code=404, detail='Entry not found')
+    db.delete(entry)
+    db.commit()
+    dictionary = db.scalar(select(Dictionary).options(selectinload(Dictionary.entries)).where(Dictionary.id == dictionary_id))
+    if dictionary is None:
+        raise HTTPException(status_code=404, detail='Dictionary not found')
+    return dictionary
+
+
+@router.post('/{dictionary_id}/preview', response_model=PronunciationPreviewResponse)
+def preview_pronunciation(dictionary_id: int, payload: PronunciationPreviewRequest, db: Session = Depends(get_db)) -> PronunciationPreviewResponse:
+    processed = preprocessor.process(db, payload.text, dictionary_id=dictionary_id)
+    return PronunciationPreviewResponse(original_text=payload.text, processed_text=processed.processed_text)
+
+
+path: /backend/app/api/routes/health.py
+----------------------------------------
+from fastapi import APIRouter
+
+from app.services.meta import get_meta
+
+router = APIRouter(tags=['health'])
+
+
+@router.get('/health')
+def health() -> dict[str, str]:
+    return {'status': 'ok'}
+
+
+@router.get('/meta')
+def meta() -> dict:
+    return get_meta()
+
+
+path: /backend/app/api/routes/live.py
+----------------------------------------
+from __future__ import annotations
+
+import json
+from urllib.parse import quote
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.schemas.live import LiveEnqueueRequest, LivePreviewRequest
+from app.services.preprocessor import TechnicalPreprocessor
+from app.services.tts.base import SynthRequest
+from app.services.tts.factory import get_tts_engine
+
+router = APIRouter(prefix='/live', tags=['live'])
+preprocessor = TechnicalPreprocessor()
+
+
+@router.post('/enqueue')
+async def enqueue_live(request: Request, payload: LiveEnqueueRequest) -> dict[str, str]:
+    manager = request.app.state.live_manager
+    await manager.enqueue(
+        payload.session_id,
+        {
+            'job_id': str(uuid4()),
+            'text': payload.text,
+            'dictionary_id': payload.dictionary_id,
+            'voice_id': payload.voice_id,
+            'lora_name': payload.lora_name,
+            'language': payload.language,
+        },
+    )
+    return {'status': 'queued'}
+
+
+@router.post('/preview')
+async def preview_live_audio(payload: LivePreviewRequest, db: Session = Depends(get_db)) -> StreamingResponse:
+    processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
+    engine = get_tts_engine()
+    wav_bytes = await engine.synthesize_preview(
+        SynthRequest(
+            text=processed.processed_text,
+            voice_id=payload.voice_id,
+            lora_name=payload.lora_name,
+            language=payload.language,
+        )
+    )
+    processed_header = quote(processed.processed_text, safe='')
+    return StreamingResponse(iter([wav_bytes]), media_type='audio/wav', headers={'X-Processed-Text': processed_header})
+
+
+@router.websocket('/ws/{session_id}')
+async def live_ws(websocket: WebSocket, session_id: str) -> None:
+    manager = websocket.app.state.live_manager
+    await manager.connect(session_id, websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            data = json.loads(raw)
+            if data.get('type') == 'enqueue_text':
+                await manager.enqueue(
+                    session_id,
+                    {
+                        'job_id': data.get('job_id') or str(uuid4()),
+                        'text': data['text'],
+                        'dictionary_id': data.get('dictionary_id'),
+                        'voice_id': data.get('voice_id'),
+                        'lora_name': data.get('lora_name'),
+                        'language': data.get('language', 'ru'),
+                    },
+                )
+            elif data.get('type') == 'ping':
+                await websocket.send_json({'type': 'pong'})
+    except WebSocketDisconnect:
+        await manager.disconnect(session_id)
+
+
+path: /backend/app/api/routes/training.py
+----------------------------------------
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.core.config import get_settings
+from app.models.training import TrainingDataset, TrainingJob
+from app.schemas.training import TrainingDatasetRead, TrainingJobCreate, TrainingJobRead
+from app.services.storage import save_upload
+
+router = APIRouter(prefix='/training', tags=['training'])
+settings = get_settings()
+
+
+@router.get('/datasets', response_model=list[TrainingDatasetRead])
+def list_datasets(db: Session = Depends(get_db)) -> list[TrainingDataset]:
+    return list(db.scalars(select(TrainingDataset).order_by(TrainingDataset.id.desc())))
+
+
+@router.post('/datasets', response_model=TrainingDatasetRead)
+def upload_dataset(
+    name: str = Form(...),
+    speaker_name: str = Form(...),
+    language: str = Form('ru'),
+    note: str | None = Form(None),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> TrainingDataset:
+    # Validation: only zip/tar/gz
+    allowed_ext = ('.zip', '.tar', '.gz')
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail=f"Invalid file format. Allowed: {', '.join(allowed_ext)}")
+
+    # Secure speaker name to prevent path traversal
+    safe_speaker_name = "".join([c for c in speaker_name if c.isalnum() or c in (' ', '_', '-')]).strip().replace(' ', '_')
+    if not safe_speaker_name:
+        safe_speaker_name = "default_speaker"
+
+    dataset_dir = settings.datasets_dir / safe_speaker_name
+    saved_path = save_upload(file, dataset_dir)
+    dataset = TrainingDataset(
+        name=name,
+        speaker_name=speaker_name,
+        language=language,
+        note=note,
+        file_path=str(saved_path),
+    )
+    db.add(dataset)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+@router.get('/jobs', response_model=list[TrainingJobRead])
+def list_jobs(db: Session = Depends(get_db)) -> list[TrainingJob]:
+    return list(db.scalars(select(TrainingJob).order_by(TrainingJob.id.desc())))
+
+
+@router.post('/jobs', response_model=TrainingJobRead)
+def create_job(payload: TrainingJobCreate, db: Session = Depends(get_db)) -> TrainingJob:
+    dataset = db.get(TrainingDataset, payload.dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail='Dataset not found')
+    job = TrainingJob(
+        dataset_id=payload.dataset_id,
+        base_model=payload.base_model,
+        output_name=payload.output_name,
+        status='queued',
+        progress=0,
+        log='Job created and queued.',
+        updated_at=datetime.utcnow(),
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+path: /backend/app/api/routes/voices.py
+----------------------------------------
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.models.voice import VoiceProfile
+from app.schemas.voice import VoiceRead
+
+router = APIRouter(prefix='/voices', tags=['voices'])
+
+
+@router.get('', response_model=list[VoiceRead])
+def list_voices(db: Session = Depends(get_db)) -> list[VoiceProfile]:
+    return list(db.scalars(select(VoiceProfile).order_by(VoiceProfile.kind, VoiceProfile.id)))
+
+
+path: /backend/app/core/config.py
+----------------------------------------
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+
+    app_title: str = Field(default='TTS Admin Stack', alias='APP_TITLE')
+    app_host: str = Field(default='0.0.0.0', alias='APP_HOST')
+    app_port: int = Field(default=8000, alias='APP_PORT')
+    api_prefix: str = Field(default='/api/v1', alias='API_PREFIX')
+    frontend_origin: str = Field(default='http://localhost:8080', alias='FRONTEND_ORIGIN')
+
+    database_url: str = Field(default='postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin', alias='DATABASE_URL')
+    redis_url: str = Field(default='redis://redis:6379/0', alias='REDIS_URL')
+    data_dir: Path = Field(default=Path('/data'), alias='DATA_DIR')
+
+    tts_backend: str = Field(default='mock', alias='TTS_BACKEND')
+    qwen_model_name: str = Field(default='Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice', alias='QWEN_MODEL_NAME')
+    qwen_device: str = Field(default='cuda:0', alias='QWEN_DEVICE')
+    qwen_dtype: str = Field(default='bfloat16', alias='QWEN_DTYPE')
+    qwen_attn_implementation: str = Field(default='sdpa', alias='QWEN_ATTN_IMPLEMENTATION')
+    qwen_compile: bool = Field(default=False, alias='QWEN_COMPILE')
+    qwen_max_concurrent: int = Field(default=2, alias='QWEN_MAX_CONCURRENT')
+    qwen_preview_style: str = Field(default='Четко, спокойно, как технический диктор.', alias='QWEN_PREVIEW_STYLE')
+
+    audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
+    training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
+
+    @property
+    def upload_dir(self) -> Path:
+        return self.data_dir / 'uploads'
+
+    @property
+    def datasets_dir(self) -> Path:
+        return self.data_dir / 'datasets'
+
+    @property
+    def artifacts_dir(self) -> Path:
+        return self.data_dir / 'artifacts'
+
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / 'models'
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    settings = Settings()
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    settings.datasets_dir.mkdir(parents=True, exist_ok=True)
+    settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    settings.models_dir.mkdir(parents=True, exist_ok=True)
+    return settings
+
+
+path: /backend/app/core/logging.py
+----------------------------------------
+import logging
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    )
+
+
+path: /backend/app/db/init_db.py
+----------------------------------------
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.db.session import SessionLocal, engine
+from app.models.base import Base
+from app.models.dictionary import Dictionary, DictionaryEntry
+from app.models.voice import VoiceProfile
+
+
+def _ensure_voice(session, name: str, display_name: str, backend: str, model_name: str, description: str, kind: str = 'voice') -> None:
+    if not session.scalar(select(VoiceProfile).where(VoiceProfile.name == name)):
+        session.add(VoiceProfile(
+            name=name,
+            display_name=display_name,
+            backend=backend,
+            model_name=model_name,
+            description=description,
+            is_enabled=True,
+            kind=kind,
+        ))
+
+
+def init_db() -> None:
+    settings = get_settings()
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as session:
+        default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
+        if default_dictionary is None:
+            default_dictionary = Dictionary(
+                name='Default Tech',
+                slug='default-tech',
+                description='Базовый словарь произношения технических терминов.',
+                is_default=True,
+            )
+            session.add(default_dictionary)
+            session.flush()
+            entries = [
+                ('Python', 'Пайтон', 'Название языка Python'),
+                ('Java', 'Джава', 'Название языка Java'),
+                ('React', 'Реакт', 'Название фреймворка React'),
+                ('Golang', 'Гоу лэнг', 'Название языка Go'),
+                ('useEffect', 'юз эффект', 'Хук React'),
+                ('useState', 'юз стейт', 'Хук React'),
+                ('goroutine', 'горутина', 'Go concurrency primitive'),
+                ('__init__', 'андерскор андерскор инит андерскор андерскор', 'Python magic method'),
+            ]
+            for source, spoken, note in entries:
+                session.add(DictionaryEntry(dictionary_id=default_dictionary.id, source_text=source, spoken_text=spoken, note=note))
+
+        if settings.tts_backend == 'qwen':
+            qwen_model = settings.qwen_model_name
+            qwen_voices = [
+                ('qwen-vivian', 'Qwen Vivian', 'Vivian', 'Яркий молодой женский голос.'),
+                ('qwen-serena', 'Qwen Serena', 'Serena', 'Теплый мягкий женский голос.'),
+                ('qwen-uncle-fu', 'Qwen Uncle Fu', 'Uncle_Fu', 'Низкий спокойный мужской голос.'),
+                ('qwen-dylan', 'Qwen Dylan', 'Dylan', 'Молодой мужской голос с четкой дикцией.'),
+                ('qwen-eric', 'Qwen Eric', 'Eric', 'Живой мужской голос с легкой хрипотцой.'),
+                ('qwen-ryan', 'Qwen Ryan', 'Ryan', 'Динамичный английский мужской голос.'),
+                ('qwen-aiden', 'Qwen Aiden', 'Aiden', 'Солнечный американский мужской голос.'),
+                ('qwen-ono-anna', 'Qwen Ono Anna', 'Ono_Anna', 'Легкий японский женский голос.'),
+                ('qwen-sohee', 'Qwen Sohee', 'Sohee', 'Теплый корейский женский голос.'),
+                ('system-neutral', 'System Neutral', 'Ryan', 'Совместимый системный alias для нейтрального голоса.'),
+                ('system-warm', 'System Warm', 'Serena', 'Совместимый системный alias для теплого голоса.'),
+            ]
+            for name, display_name, speaker, description in qwen_voices:
+                _ensure_voice(session, name, display_name, 'qwen', qwen_model, f'{description} Speaker={speaker}')
+            _ensure_voice(session, 'tech-lora-v1', 'Tech Style v1', 'qwen', qwen_model, 'Стиль тех-диктора через instruction prompt.', kind='lora')
+            _ensure_voice(session, 'calm-lora-v1', 'Calm Style v1', 'qwen', qwen_model, 'Спокойный стиль через instruction prompt.', kind='lora')
+            _ensure_voice(session, 'energetic-lora-v1', 'Energetic Style v1', 'qwen', qwen_model, 'Энергичный стиль через instruction prompt.', kind='lora')
+        else:
+            _ensure_voice(session, 'system-neutral', 'System Neutral', 'mock', 'mock://neutral', 'Базовый нейтральный голос')
+            _ensure_voice(session, 'system-warm', 'System Warm', 'mock', 'mock://warm', 'Теплый голос для тестов')
+            _ensure_voice(session, 'tech-lora-v1', 'Tech LoRA v1', 'mock', 'mock://tech-lora-v1', 'LoRA для техтекста', kind='lora')
+
+        session.commit()
+
+
+path: /backend/app/db/session.py
+----------------------------------------
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.config import get_settings
+
+settings = get_settings()
+engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+path: /backend/app/main.py
+----------------------------------------
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from redis.asyncio import Redis
+
+from app.api.routes.dictionaries import router as dictionaries_router
+from app.api.routes.health import router as health_router
+from app.api.routes.live import router as live_router
+from app.api.routes.training import router as training_router
+from app.api.routes.voices import router as voices_router
+from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.db.init_db import init_db
+from app.services.live_sessions import LiveSessionManager
+from app.services.preprocessor import TechnicalPreprocessor
+from app.services.tts.factory import get_tts_engine
+import os
+
+settings = get_settings()
+configure_logging()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not os.getenv("TESTING"):
+        init_db()
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    preprocessor = TechnicalPreprocessor()
+    tts_engine = get_tts_engine()
+
+    app.state.redis = redis
+    app.state.tts_engine = tts_engine
+    app.state.live_manager = LiveSessionManager(
+        redis=redis,
+        tts_engine=tts_engine,
+        preprocessor=preprocessor,
+    )
+
+    try:
+        yield
+    finally:
+        await redis.close()
+
+
+app = FastAPI(title=settings.app_title, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        settings.frontend_origin,
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health_router, prefix=settings.api_prefix)
+app.include_router(dictionaries_router, prefix=settings.api_prefix)
+app.include_router(voices_router, prefix=settings.api_prefix)
+app.include_router(training_router, prefix=settings.api_prefix)
+app.include_router(live_router, prefix=settings.api_prefix)
+
+
+path: /backend/app/models/base.py
+----------------------------------------
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+path: /backend/app/models/dictionary.py
+----------------------------------------
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base
+
+
+class Dictionary(Base):
+    __tablename__ = 'dictionaries'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    entries: Mapped[list['DictionaryEntry']] = relationship(back_populates='dictionary', cascade='all, delete-orphan')
+
+
+class DictionaryEntry(Base):
+    __tablename__ = 'dictionary_entries'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dictionary_id: Mapped[int] = mapped_column(ForeignKey('dictionaries.id', ondelete='CASCADE'), nullable=False)
+    source_text: Mapped[str] = mapped_column(String(255), nullable=False)
+    spoken_text: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    dictionary: Mapped['Dictionary'] = relationship(back_populates='entries')
+
+
+path: /backend/app/models/training.py
+----------------------------------------
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class TrainingDataset(Base):
+    __tablename__ = 'training_datasets'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    speaker_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    language: Mapped[str] = mapped_column(String(30), nullable=False, default='ru')
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TrainingJob(Base):
+    __tablename__ = 'training_jobs'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dataset_id: Mapped[int] = mapped_column(ForeignKey('training_datasets.id'), nullable=False)
+    base_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    output_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default='queued', nullable=False)
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    artifact_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+path: /backend/app/models/voice.py
+----------------------------------------
+from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class VoiceProfile(Base):
+    __tablename__ = 'voice_profiles'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    backend: Mapped[str] = mapped_column(String(60), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), default='voice', nullable=False)
+
+
+path: /backend/app/schemas/dictionary.py
+----------------------------------------
+from pydantic import BaseModel, Field
+
+
+class DictionaryEntryCreate(BaseModel):
+    source_text: str = Field(min_length=1, max_length=255)
+    spoken_text: str = Field(min_length=1, max_length=255)
+    note: str | None = None
+
+
+class DictionaryEntryRead(DictionaryEntryCreate):
+    id: int
+
+    model_config = {'from_attributes': True}
+
+
+class DictionaryCreate(BaseModel):
+    name: str
+    slug: str
+    description: str | None = None
+    is_default: bool = False
+
+
+class DictionaryRead(DictionaryCreate):
+    id: int
+    entries: list[DictionaryEntryRead] = []
+
+    model_config = {'from_attributes': True}
+
+
+class PronunciationPreviewRequest(BaseModel):
+    text: str
+
+
+class PronunciationPreviewResponse(BaseModel):
+    original_text: str
+    processed_text: str
+
+
+path: /backend/app/schemas/live.py
+----------------------------------------
+from pydantic import BaseModel
+
+
+class LiveEnqueueRequest(BaseModel):
+    session_id: str
+    text: str
+    dictionary_id: int | None = None
+    voice_id: str | None = None
+    lora_name: str | None = None
+    language: str = 'ru'
+
+
+class LivePreviewRequest(BaseModel):
+    text: str
+    dictionary_id: int | None = None
+    voice_id: str | None = None
+    lora_name: str | None = None
+    language: str = 'ru'
+
+
+path: /backend/app/schemas/training.py
+----------------------------------------
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class TrainingDatasetRead(BaseModel):
+    id: int
+    name: str
+    speaker_name: str
+    language: str
+    file_path: str
+    note: str | None
+    created_at: datetime
+
+    model_config = {'from_attributes': True}
+
+
+class TrainingJobCreate(BaseModel):
+    dataset_id: int
+    base_model: str
+    output_name: str
+
+
+class TrainingJobRead(BaseModel):
+    id: int
+    dataset_id: int
+    base_model: str
+    output_name: str
+    status: str
+    progress: int
+    log: str | None
+    artifact_path: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {'from_attributes': True}
+
+
+path: /backend/app/schemas/voice.py
+----------------------------------------
+from pydantic import BaseModel
+
+
+class VoiceRead(BaseModel):
+    id: int
+    name: str
+    display_name: str
+    backend: str
+    model_name: str
+    description: str | None
+    is_enabled: bool
+    kind: str
+
+    model_config = {'from_attributes': True}
+
+
+path: /backend/app/services/buffer.py
+----------------------------------------
+import json
+from typing import Any
+
+from redis.asyncio import Redis
+
+from app.core.config import get_settings
+
+settings = get_settings()
+
+
+class RedisFifoBuffer:
+    def __init__(self, redis: Redis) -> None:
+        self.redis = redis
+
+    @staticmethod
+    def _key(session_id: str) -> str:
+        return f'live-buffer:{session_id}'
+
+    async def enqueue(self, session_id: str, payload: dict[str, Any]) -> None:
+        await self.redis.rpush(self._key(session_id), json.dumps(payload, ensure_ascii=False))
+
+    async def consume(self, session_id: str, timeout: int = 1) -> dict[str, Any] | None:
+        item = await self.redis.blpop(self._key(session_id), timeout=timeout)
+        if item is None:
+            return None
+        _, raw = item
+        return json.loads(raw)
+
+
+path: /backend/app/services/live_sessions.py
+----------------------------------------
+from __future__ import annotations
+
+import asyncio
+import base64
+import logging
+import time
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import WebSocket
+from redis.asyncio import Redis
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.db.session import SessionLocal
+from app.services.buffer import RedisFifoBuffer
+from app.services.preprocessor import TechnicalPreprocessor
+from app.services.tts.base import SynthRequest, TTSEngine
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+
+@dataclass(slots=True)
+class SessionContext:
+    session_id: str
+    websocket: WebSocket
+    task: asyncio.Task[None]
+
+
+class LiveSessionManager:
+    def __init__(self, redis: Redis, tts_engine: TTSEngine, preprocessor: TechnicalPreprocessor) -> None:
+        self.redis = redis
+        self.buffer = RedisFifoBuffer(redis)
+        self.tts_engine = tts_engine
+        self.preprocessor = preprocessor
+        self.sessions: dict[str, SessionContext] = {}
+
+    async def connect(self, session_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        await self.tts_engine.warmup()
+        task = asyncio.create_task(self._consume_loop(session_id, websocket), name=f'live-session-{session_id}')
+        self.sessions[session_id] = SessionContext(session_id=session_id, websocket=websocket, task=task)
+        await websocket.send_json({'type': 'session.ready', 'session_id': session_id})
+
+    async def disconnect(self, session_id: str) -> None:
+        ctx = self.sessions.pop(session_id, None)
+        if ctx is None:
+            return
+        ctx.task.cancel()
+        try:
+            await ctx.task
+        except asyncio.CancelledError:
+            pass
+
+    async def enqueue(self, session_id: str, payload: dict[str, Any]) -> None:
+        await self.buffer.enqueue(session_id, payload)
+
+    async def _consume_loop(self, session_id: str, websocket: WebSocket) -> None:
+        while True:
+            payload = await self.buffer.consume(session_id=session_id, timeout=1)
+            if payload is None:
+                await asyncio.sleep(0)
+                continue
+
+            started_at = time.perf_counter()
+            job_id = payload.get('job_id') or f'{session_id}-{int(started_at * 1000)}'
+            with SessionLocal() as db:
+                processed = self.preprocessor.process(
+                    db=db,
+                    text=payload['text'],
+                    dictionary_id=payload.get('dictionary_id'),
+                )
+            await websocket.send_json({
+                'type': 'job.accepted',
+                'job_id': job_id,
+                'processed_text': processed.processed_text,
+                'chunks': len(processed.chunks),
+            })
+            first_audio_sent = False
+            try:
+                for chunk_index, chunk_text in enumerate(processed.chunks):
+                    await websocket.send_json({
+                        'type': 'chunk.ready',
+                        'job_id': job_id,
+                        'chunk_index': chunk_index,
+                        'text': chunk_text,
+                    })
+                    async for audio in self.tts_engine.synthesize_stream(
+                        SynthRequest(
+                            text=chunk_text,
+                            voice_id=payload.get('voice_id'),
+                            lora_name=payload.get('lora_name'),
+                            language=payload.get('language', 'ru'),
+                        )
+                    ):
+                        if not first_audio_sent:
+                            first_audio_sent = True
+                            await websocket.send_json({
+                                'type': 'metrics.first_audio',
+                                'job_id': job_id,
+                                'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                            })
+                        await websocket.send_json({
+                            'type': 'audio.chunk',
+                            'job_id': job_id,
+                            'chunk_index': chunk_index,
+                            'seq_no': audio.seq_no,
+                            'text': audio.text,
+                            'audio_b64': base64.b64encode(audio.wav_bytes).decode('ascii'),
+                                'sample_rate': settings.audio_sample_rate,
+                            'mime': 'audio/l16',
+                            'is_last': audio.is_last,
+                        })
+                await websocket.send_json({
+                    'type': 'job.done',
+                    'job_id': job_id,
+                    'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                })
+            except Exception as e:
+                logger.exception("Synthesis failed for session %s", session_id)
+                await websocket.send_json({
+                    'type': 'job.error',
+                    'job_id': job_id,
+                    'error': str(e),
+                })
+
+
+path: /backend/app/services/meta.py
+----------------------------------------
+from app.core.config import get_settings
+from app.services.tts.factory import get_tts_engine
+
+
+def get_meta() -> dict:
+    settings = get_settings()
+    engine = get_tts_engine()
+    return {
+        'app_title': settings.app_title,
+        'tts_backend': settings.tts_backend,
+        'qwen_model_name': settings.qwen_model_name,
+        'engine_class': engine.__class__.__name__,
+    }
+
+
+path: /backend/app/services/preprocessor.py
+----------------------------------------
+from __future__ import annotations
+
+import re
+import unicodedata
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.dictionary import Dictionary
+
+
+@dataclass(slots=True)
+class ProcessedPayload:
+    original_text: str
+    processed_text: str
+    chunks: list[str]
+
+
+class TechnicalPreprocessor:
+    def __init__(self) -> None:
+        self.regex_replacements = [
+            (r"\bAPI\b", "эй пи ай"),
+            (r"\bCLI\b", "си эл ай"),
+            (r"\bJSON\b", "джейсон"),
+            (r"\bHTTP\b", "эйч ти ти пи"),
+            (r"\bHTTPS\b", "эйч ти ти пи эс"),
+            (r"\bSQL\b", "эс кью эл"),
+            (r"\b(REST|RESTful)\b", "рест"),
+            (r"\bCI/CD\b", "си ай си ди"),
+            (r"\bv(\d+)\.(\d+)\.(\d+)\b", r"версия \1.\2.\3"),
+            (r"\bUI/UX\b", "ю ай ю икс"),
+        ]
+
+    def process(self, db: Session, text: str, dictionary_id: int | None = None) -> ProcessedPayload:
+        normalized = self._normalize(text)
+        normalized = self._rewrite_code(normalized)
+        normalized = self._apply_regex(normalized)
+        normalized = self._apply_dictionary(db, normalized, dictionary_id)
+        chunks = self._chunk(normalized)
+        return ProcessedPayload(original_text=text, processed_text=normalized, chunks=chunks)
+
+    def _normalize(self, text: str) -> str:
+        text = unicodedata.normalize("NFKC", text)
+        text = text.replace("\u00A0", " ")
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _rewrite_code(self, text: str) -> str:
+        def code_fence_repl(match: re.Match[str]) -> str:
+            lang = match.group(1) or "code"
+            body = match.group(2).strip()
+            return f" Блок кода {lang}. {self._speak_code(body)}. Конец блока кода. "
+
+        text = re.sub(r"```([a-zA-Z0-9_+-]*)\n(.*?)```", code_fence_repl, text, flags=re.DOTALL)
+        text = re.sub(r"`([^`]+)`", lambda m: self._speak_code(m.group(1)), text)
+        return text
+
+    def _speak_code(self, code: str) -> str:
+        replacements = {
+            "_": " андерскор ",
+            "/": " слэш ",
+            ".": " точка ",
+            ":": " двоеточие ",
+            ";": " точка с запятой ",
+            "(": " открывающая скобка ",
+            ")": " закрывающая скобка ",
+            "{": " открывающая фигурная скобка ",
+            "}": " закрывающая фигурная скобка ",
+            "[": " открывающая квадратная скобка ",
+            "]": " закрывающая квадратная скобка ",
+            "==": " равно равно ",
+            "!=": " не равно ",
+            "=>": " стрелка ",
+            "->": " стрелка ",
+        }
+        for src, dst in replacements.items():
+            code = code.replace(src, dst)
+        code = re.sub(r"([a-z])([A-Z])", r"\1 \2", code)
+        return re.sub(r"\s+", " ", code).strip()
+
+    def _apply_regex(self, text: str) -> str:
+        for pattern, replacement in self.regex_replacements:
+            text = re.sub(pattern, replacement, text)
+        return text
+
+    def _apply_dictionary(self, db: Session, text: str, dictionary_id: int | None) -> str:
+        dictionary = None
+        if dictionary_id is not None:
+            dictionary = db.get(Dictionary, dictionary_id)
+        if dictionary is None:
+            dictionary = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
+        if dictionary is None or not dictionary.entries:
+            return text
+
+        # Sort by length descending to match longer phrases first
+        entries = sorted(dictionary.entries, key=lambda entry: len(entry.source_text), reverse=True)
+        for entry in entries:
+            # Using \b word boundaries and IGNORECASE to be more robust
+            # We escape the source text but wrap it in \b if it's alphanumeric
+            pattern = re.escape(entry.source_text)
+            if entry.source_text[0].isalnum():
+                pattern = r"\b" + pattern
+            if entry.source_text[-1].isalnum():
+                pattern = pattern + r"\b"
+
+            text = re.compile(pattern, re.IGNORECASE).sub(entry.spoken_text, text)
+        return text
+
+    def _chunk(self, text: str) -> list[str]:
+        parts = [part.strip() for part in re.split(r"(?<=[.!?;:\n])\s+", text) if part.strip()]
+        if not parts:
+            return [text]
+        chunks: list[str] = []
+        buffer = ""
+        target = 140
+        max_len = 220
+        for part in parts:
+            if not buffer:
+                buffer = part
+                continue
+            candidate = f"{buffer} {part}".strip()
+            if len(candidate) <= target:
+                buffer = candidate
+            else:
+                chunks.append(buffer)
+                buffer = part
+        if buffer:
+            chunks.append(buffer)
+        final_chunks: list[str] = []
+        for chunk in chunks:
+            if len(chunk) <= max_len:
+                final_chunks.append(chunk)
+                continue
+            words = chunk.split()
+            current: list[str] = []
+            for word in words:
+                candidate = " ".join(current + [word]).strip()
+                if current and len(candidate) > max_len:
+                    final_chunks.append(" ".join(current))
+                    current = [word]
+                else:
+                    current.append(word)
+            if current:
+                final_chunks.append(" ".join(current))
+        return final_chunks
+
+
+path: /backend/app/services/storage.py
+----------------------------------------
+import shutil
+from pathlib import Path
+
+from fastapi import UploadFile
+
+from app.core.config import get_settings
+
+settings = get_settings()
+
+
+def save_upload(upload: UploadFile, target_dir: Path) -> Path:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / upload.filename
+    with target_path.open('wb') as buffer:
+        shutil.copyfileobj(upload.file, buffer)
+    return target_path
+
+
+path: /backend/app/services/tts/base.py
+----------------------------------------
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import AsyncIterator
+
+
+@dataclass(slots=True)
+class SynthRequest:
+    text: str
+    voice_id: str | None = None
+    lora_name: str | None = None
+    language: str = 'ru'
+
+
+@dataclass(slots=True)
+class SynthChunk:
+    wav_bytes: bytes
+    seq_no: int
+    text: str
+    is_last: bool
+
+
+class TTSEngine(ABC):
+    @abstractmethod
+    async def warmup(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def synthesize_preview(self, request: SynthRequest) -> bytes:
+        raise NotImplementedError
+
+
+path: /backend/app/services/tts/factory.py
+----------------------------------------
+from app.core.config import get_settings
+from app.services.tts.base import TTSEngine
+from app.services.tts.mock import MockTTSEngine
+from app.services.tts.qwen import QwenTTSEngine
+
+
+_engine: TTSEngine | None = None
+
+
+def get_tts_engine() -> TTSEngine:
+    global _engine
+    if _engine is not None:
+        return _engine
+    settings = get_settings()
+    if settings.tts_backend == 'qwen':
+        _engine = QwenTTSEngine()
+    else:
+        _engine = MockTTSEngine()
+    return _engine
+
+
+path: /backend/app/services/tts/mock.py
+----------------------------------------
+from __future__ import annotations
+
+import asyncio
+import io
+import math
+import struct
+import wave
+from typing import AsyncIterator
+
+from app.core.config import get_settings
+from app.services.tts.base import SynthChunk, SynthRequest, TTSEngine
+
+
+class MockTTSEngine(TTSEngine):
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self._is_warm = False
+
+    async def warmup(self) -> None:
+        if self._is_warm:
+            return
+        await asyncio.sleep(0.02)
+        self._is_warm = True
+
+    async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
+        await self.warmup()
+        words = request.text.split()
+        segments = [' '.join(words[i:i + 8]) for i in range(0, max(len(words), 1), 8)] or [request.text]
+        for index, segment in enumerate(segments):
+            await asyncio.sleep(0.03)
+            # Yield raw PCM (S16LE) for streaming
+            yield SynthChunk(
+                wav_bytes=self._generate_tone_raw_pcm(segment, duration=min(0.45, max(0.12, len(segment) / 90))),
+                seq_no=index,
+                text=segment,
+                is_last=index == len(segments) - 1,
+            )
+
+    async def synthesize_preview(self, request: SynthRequest) -> bytes:
+        await self.warmup()
+        duration = min(2.2, max(0.35, len(request.text) / 65))
+        # Keep WAV for preview (standard <audio> compatibility)
+        pcm = self._generate_tone_raw_pcm(request.text, duration=duration)
+        return self._pcm_to_wav(pcm)
+
+    def _generate_tone_raw_pcm(self, seed_text: str, duration: float) -> bytes:
+        sample_rate = self.settings.audio_sample_rate
+        frames = int(sample_rate * duration)
+        base_freq = 320 + (sum(ord(char) for char in seed_text) % 220)
+        amplitude = 12000
+        raw_data = []
+        for i in range(frames):
+            envelope = 1.0
+            if i < sample_rate * 0.01:
+                envelope = i / (sample_rate * 0.01)
+            elif i > frames - sample_rate * 0.02:
+                envelope = max(0.0, (frames - i) / (sample_rate * 0.02))
+            value = int(amplitude * envelope * math.sin(2 * math.pi * base_freq * (i / sample_rate)))
+            raw_data.append(struct.pack('<h', value))
+        return b''.join(raw_data)
+
+    def _pcm_to_wav(self, pcm_data: bytes, sample_rate: int | None = None) -> bytes:
+        sr = sample_rate or self.settings.audio_sample_rate
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sr)
+            wav_file.writeframes(pcm_data)
+        return buffer.getvalue()
+
+
+path: /backend/app/services/tts/qwen.py
+----------------------------------------
+from __future__ import annotations
+
+import asyncio
+import io
+import logging
+import wave
+from typing import AsyncIterator
+
+import numpy as np
+import soundfile as sf
+
+from app.core.config import get_settings
+from app.services.tts.base import SynthChunk, SynthRequest, TTSEngine
+
+logger = logging.getLogger(__name__)
+
+
+VOICE_ALIASES = {
+    'system-neutral': 'Ryan',
+    'system-warm': 'Serena',
+    'qwen-ryan': 'Ryan',
+    'qwen-aiden': 'Aiden',
+    'qwen-vivian': 'Vivian',
+    'qwen-serena': 'Serena',
+    'qwen-uncle-fu': 'Uncle_Fu',
+    'qwen-dylan': 'Dylan',
+    'qwen-eric': 'Eric',
+    'qwen-ono-anna': 'Ono_Anna',
+    'qwen-sohee': 'Sohee',
+}
+
+STYLE_ALIASES = {
+    'tech-lora-v1': 'Четко, спокойно, размеренно, как технический диктор. Английские термины произноси разборчиво.',
+    'calm-lora-v1': 'Очень спокойно и мягко, без спешки.',
+    'energetic-lora-v1': 'Живой и энергичный темп, но без крика.',
+}
+
+LANGUAGE_ALIASES = {
+    'ru': 'Russian',
+    'en': 'English',
+    'zh': 'Chinese',
+    'ja': 'Japanese',
+    'ko': 'Korean',
+    'de': 'German',
+    'fr': 'French',
+    'pt': 'Portuguese',
+    'es': 'Spanish',
+    'it': 'Italian',
+}
+
+
+class QwenTTSEngine(TTSEngine):
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self._model = None
+        self._sample_rate = 24000
+        self._lock = asyncio.Lock()
+        self._semaphore = asyncio.Semaphore(max(1, self.settings.qwen_max_concurrent))
+        self._is_warm = False
+
+    async def warmup(self) -> None:
+        await self._ensure_model()
+        self._is_warm = True
+
+    async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
+        # Implementation for real streaming could be here if model supports it.
+        # For now, we generate full result and chunk it to raw PCM.
+        wav_bytes = await self._generate_wav_bytes(request)
+        # Extract raw PCM from WAV
+        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav:
+            frames = wav.readframes(wav.getnframes())
+
+        # Split into small chunks for streaming
+        chunk_size = 3200  # ~66ms at 24kHz S16 mono
+        parts = [frames[i:i + chunk_size] for i in range(0, len(frames), chunk_size)]
+
+        for seq_no, part in enumerate(parts):
+            yield SynthChunk(
+                wav_bytes=part,
+                seq_no=seq_no,
+                text=request.text,
+                is_last=seq_no == len(parts) - 1,
+            )
+
+    async def synthesize_preview(self, request: SynthRequest) -> bytes:
+        return await self._generate_wav_bytes(request)
+
+    async def _generate_wav_bytes(self, request: SynthRequest) -> bytes:
+        await self._ensure_model()
+        async with self._semaphore:
+            return await asyncio.to_thread(self._generate_wav_bytes_sync, request)
+
+    async def _ensure_model(self) -> None:
+        if self._model is not None:
+            return
+        async with self._lock:
+            if self._model is not None:
+                return
+
+            from qwen_tts import Qwen3TTSModel
+            import torch
+
+            dtype_map = {
+                'bfloat16': torch.bfloat16,
+                'float16': torch.float16,
+                'float32': torch.float32,
+            }
+            dtype = dtype_map.get(self.settings.qwen_dtype.lower(), torch.bfloat16)
+
+            logger.info(
+                'Loading Qwen3-TTS model=%s device=%s dtype=%s attn=%s',
+                self.settings.qwen_model_name,
+                self.settings.qwen_device,
+                self.settings.qwen_dtype,
+                self.settings.qwen_attn_implementation,
+            )
+
+            self._model = Qwen3TTSModel.from_pretrained(
+                self.settings.qwen_model_name,
+                device_map=self.settings.qwen_device,
+                dtype=dtype,
+                attn_implementation=self.settings.qwen_attn_implementation,
+            )
+
+            supported = []
+            try:
+                supported = list(self._model.get_supported_speakers())
+            except Exception:
+                logger.warning('Could not fetch supported speakers from qwen-tts model')
+            if supported:
+                logger.info('Qwen speakers available: %s', ', '.join(supported))
+
+    def _generate_wav_bytes_sync(self, request: SynthRequest) -> bytes:
+        speaker = VOICE_ALIASES.get(request.voice_id or '', request.voice_id or 'Ryan')
+        speaker = speaker.lower().replace(' ', '_')
+
+        language = LANGUAGE_ALIASES.get(
+            (request.language or 'ru').lower(),
+            request.language or 'Russian',
+        )
+
+        instruct = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
+
+        logger.info(
+            'Qwen synth start speaker=%s language=%s chars=%s lora=%s',
+            speaker,
+            language,
+            len(request.text),
+            request.lora_name,
+        )
+
+        try:
+            wavs, sr = self._model.generate_custom_voice(
+                text=request.text.strip(),
+                language=language,
+                speaker=speaker,
+                instruct=instruct.strip() if instruct else None,
+                non_streaming_mode=True,
+                max_new_tokens=2048,
+            )
+        except Exception:
+            logger.exception('Qwen generate_custom_voice failed')
+            raise
+
+        self._sample_rate = int(sr)
+
+        if isinstance(wavs, np.ndarray):
+            audio = wavs[0] if wavs.ndim > 1 else wavs
+        elif isinstance(wavs, list):
+            if not wavs:
+                raise RuntimeError('Qwen returned empty wav list')
+            audio = wavs[0]
+        else:
+            logger.error('Unexpected Qwen output type: %s', type(wavs))
+            raise TypeError(f'Unexpected wavs type: {type(wavs)}')
+
+        if isinstance(audio, list):
+            audio = np.asarray(audio, dtype=np.float32)
+        elif not isinstance(audio, np.ndarray):
+            audio = np.asarray(audio, dtype=np.float32)
+
+        audio = audio.astype(np.float32, copy=False)
+
+        if audio.ndim > 1:
+            audio = np.mean(audio, axis=-1).astype(np.float32)
+
+        logger.info('Qwen synth done sr=%s samples=%s', sr, audio.shape[0] if audio.ndim else 0)
+
+        buffer = io.BytesIO()
+        sf.write(buffer, audio, sr, format='WAV', subtype='PCM_16')
+        return buffer.getvalue()
+
+    def _split_wav_bytes(self, wav_bytes: bytes, target_ms: int = 320) -> list[bytes]:
+        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav:
+            channels = wav.getnchannels()
+            sample_width = wav.getsampwidth()
+            sample_rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+
+        bytes_per_frame = channels * sample_width
+        frames_per_part = max(1, int(sample_rate * (target_ms / 1000.0)))
+        chunk_size = frames_per_part * bytes_per_frame
+
+        parts: list[bytes] = []
+        for start in range(0, len(frames), chunk_size):
+            raw = frames[start:start + chunk_size]
+            out = io.BytesIO()
+            with wave.open(out, 'wb') as wav_out:
+                wav_out.setnchannels(channels)
+                wav_out.setsampwidth(sample_width)
+                wav_out.setframerate(sample_rate)
+                wav_out.writeframes(raw)
+            parts.append(out.getvalue())
+        return parts or [wav_bytes]
+
+
+path: /backend/app/trainer/runner.py
+----------------------------------------
+from __future__ import annotations
+
+import json
+import logging
+import time
+from datetime import datetime
+
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.db.init_db import init_db
+from app.db.session import SessionLocal
+from app.models.training import TrainingDataset, TrainingJob
+from app.models.voice import VoiceProfile
+
+configure_logging()
+logger = logging.getLogger("trainer")
+settings = get_settings()
+
+
+def _append_log(job: TrainingJob, line: str) -> None:
+    job.log = ((job.log or "").strip() + "\n" + line).strip()
+    job.updated_at = datetime.utcnow()
+
+
+def _process_job(job_id: int) -> None:
+    with SessionLocal() as db:
+        job = db.get(TrainingJob, job_id)
+        if job is None or job.status != "queued":
+            return
+        dataset = db.get(TrainingDataset, job.dataset_id)
+        if dataset is None:
+            job.status = "failed"
+            _append_log(job, "Dataset not found.")
+            db.commit()
+            return
+
+        artifact_dir = settings.artifacts_dir / f"job-{job.id}-{job.output_name}"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        job.status = "running"
+        job.progress = 5
+        _append_log(job, f"Started training for dataset #{dataset.id} using base model {job.base_model}.")
+        db.commit()
+
+        steps = [
+            (20, "Validated dataset and generated manifest."),
+            (45, "Prepared training recipe and hyperparameters."),
+            (70, "Simulated fine-tuning epoch execution."),
+            (90, "Exported LoRA / custom voice artifact metadata."),
+        ]
+        for progress, message in steps:
+            time.sleep(2)
+            job = db.get(TrainingJob, job_id)
+            if job is None:
+                return
+            job.progress = progress
+            _append_log(job, message)
+            db.commit()
+
+        recipe = {
+            "job_id": job.id,
+            "base_model": job.base_model,
+            "dataset_path": dataset.file_path,
+            "speaker_name": dataset.speaker_name,
+            "language": dataset.language,
+            "output_name": job.output_name,
+            "notes": dataset.note,
+            "next_step": "Replace trainer stub with real fine-tuning recipe for Qwen/CosyVoice.",
+        }
+        (artifact_dir / "recipe.json").write_text(json.dumps(recipe, ensure_ascii=False, indent=2), encoding="utf-8")
+        (artifact_dir / "README.txt").write_text(
+            "Training runner stub completed successfully. Integrate your real training pipeline here.\n",
+            encoding="utf-8",
+        )
+
+        job = db.get(TrainingJob, job_id)
+        if job is None:
+            return
+        job.status = "completed"
+        job.progress = 100
+        job.artifact_path = str(artifact_dir)
+        _append_log(job, "Training completed. Artifact metadata generated.")
+        db.add(
+            VoiceProfile(
+                name=f"ft-{job.output_name}-{job.id}",
+                display_name=f"FT {job.output_name}",
+                backend="qwen",
+                model_name=str(artifact_dir),
+                description=f"Fine-tuned voice exported from training job {job.id}",
+                is_enabled=True,
+                kind="voice",
+            )
+        )
+        db.commit()
+
+
+def main() -> None:
+    init_db()
+    logger.info("trainer started")
+    while True:
+        with SessionLocal() as db:
+            queued_job = db.scalar(select(TrainingJob).where(TrainingJob.status == "queued").order_by(TrainingJob.id.asc()))
+            job_id = queued_job.id if queued_job else None
+        if job_id is not None:
+            try:
+                _process_job(job_id)
+            except Exception as exc:  # pragma: no cover
+                logger.exception("training job failed job_id=%s", job_id)
+                with SessionLocal() as db:
+                    job = db.get(TrainingJob, job_id)
+                    if job is not None:
+                        job.status = "failed"
+                        _append_log(job, f"Unhandled error: {exc}")
+                        db.commit()
+        else:
+            time.sleep(settings.training_poll_seconds)
+
+
+if __name__ == "__main__":
+    main()
+
+
+path: /backend/Dockerfile
+----------------------------------------
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+    git \
+    libsndfile1 \
+    sox \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir torch torchvision torchaudio && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY app ./app
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+path: /backend/tests/conftest.py
+----------------------------------------
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.models.base import Base
+import os
+
+# Create a test database (SQLite) for unit tests
+TEST_DB_URL = "sqlite:///./backend/tests/test.db"
+
+@pytest.fixture(scope="session")
+def engine():
+    engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    Base.metadata.drop_all(bind=engine)
+    if os.path.exists("./backend/tests/test.db"):
+        os.remove("./backend/tests/test.db")
+
+@pytest.fixture(scope="function")
+def db_session(engine):
+    connection = engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+path: /backend/tests/test_api.py
+----------------------------------------
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.main import app
+from app.models.base import Base
+from app.api.deps import get_db
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./test_api.db"
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@pytest.fixture(scope="module")
+def db_session():
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture(scope="module")
+def client(db_session):
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+def test_health(client):
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+def test_list_voices(client):
+    response = client.get("/api/v1/voices")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+def test_meta(client):
+    response = client.get("/api/v1/meta")
+    assert response.status_code == 200
+    assert "app_title" in response.json()
+    assert "tts_backend" in response.json()
+
+def test_dataset_upload_path_traversal(client):
+    # Prepare a fake zip file
+    import io
+    file_content = b"fake zip content"
+    file = io.BytesIO(file_content)
+
+    # Try with malicious speaker_name
+    response = client.post(
+        "/api/v1/training/datasets",
+        data={
+            "name": "Traversal Test",
+            "speaker_name": "../../etc/passwd",
+            "language": "ru",
+            "note": "testing path traversal"
+        },
+        files={"file": ("test.zip", file, "application/zip")}
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    # The saved file_path should NOT contain ../../etc/passwd
+    # Our sanitizer should have converted it to something safe like "etcpasswd" or similar
+    assert "../../" not in data["file_path"]
+    assert "etcpasswd" in data["file_path"] or "etc_passwd" in data["file_path"]
+
+def test_dataset_upload_invalid_extension(client):
+    import io
+    file = io.BytesIO(b"not a zip")
+    response = client.post(
+        "/api/v1/training/datasets",
+        data={"name": "Invalid Ext", "speaker_name": "ivan", "language": "ru"},
+        files={"file": ("test.txt", file, "text/plain")}
+    )
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+
+path: /backend/tests/test_preprocessor.py
+----------------------------------------
+import pytest
+from sqlalchemy.orm import Session
+from app.services.preprocessor import TechnicalPreprocessor
+from app.models.dictionary import Dictionary, DictionaryEntry
+
+def test_normalize():
+    tp = TechnicalPreprocessor()
+    assert tp._normalize("  hello   world  ") == "hello world"
+    assert tp._normalize("line1\n\n\nline2") == "line1\n\nline2"
+
+def test_apply_regex():
+    tp = TechnicalPreprocessor()
+    assert "эй пи ай" in tp._apply_regex("Using the API today")
+    assert "джейсон" in tp._apply_regex("Send JSON payload")
+    assert "версия 1.2.3" in tp._apply_regex("Software v1.2.3")
+    assert "ю ай ю икс" in tp._apply_regex("Great UI/UX design")
+
+def test_speak_code():
+    tp = TechnicalPreprocessor()
+    spoken = tp._speak_code("my_function(arg)")
+    assert "андерскор" in spoken
+    assert "открывающая скобка" in spoken
+    assert "закрывающая скобка" in spoken
+
+def test_apply_dictionary(db_session: Session):
+    # Setup dictionary
+    dict_obj = Dictionary(name="Test Dict", slug="test-dict", is_default=True)
+    db_session.add(dict_obj)
+    db_session.commit()
+
+    entry = DictionaryEntry(dictionary_id=dict_obj.id, source_text="React", spoken_text="Риэкт")
+    db_session.add(entry)
+    db_session.commit()
+
+    tp = TechnicalPreprocessor()
+    # Should replace React with Риэкт
+    processed = tp._apply_dictionary(db_session, "Learning React is fun", dictionary_id=dict_obj.id)
+    assert "Риэкт" in processed
+
+    # Should NOT replace part of a word if it's alphanumeric (word boundary check)
+    processed_partial = tp._apply_dictionary(db_session, "Reaction is different", dictionary_id=dict_obj.id)
+    assert "Риэкт" not in processed_partial
+    assert "Reaction" in processed_partial
+
+
+path: /docker-compose.yml
+----------------------------------------
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tts_admin}
+      POSTGRES_USER: ${POSTGRES_USER:-tts_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tts_admin_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tts_admin} -d ${POSTGRES_DB:-tts_admin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATA_DIR: /data
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      HF_HOME: /data/huggingface
+      HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+
+  trainer:
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.trainer.runner"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATA_DIR: /data
+      HF_HOME: /data/huggingface
+      HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  web:
+    build:
+      context: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+path: /frontend/.dockerignore
+----------------------------------------
+node_modules
+dist
+npm-debug.log
+.DS_Store
+._*
+
+
+path: /frontend/Dockerfile
+----------------------------------------
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package.json ./
+RUN npm config set registry https://registry.npmjs.org/ && npm install --no-audit --no-fund
+COPY . .
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+
+path: /frontend/nginx.conf
+----------------------------------------
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://api:8000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/v1/live/ws/ {
+        proxy_pass http://api:8000/api/v1/live/ws/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+
+
+path: /frontend/package.json
+----------------------------------------
+{
+  "name": "tts-admin-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}
+
+
+path: /frontend/src/api/client.ts
+----------------------------------------
+export type DictionaryEntry = {
+  id: number
+  source_text: string
+  spoken_text: string
+  note?: string | null
+}
+
+export type Dictionary = {
+  id: number
+  name: string
+  slug: string
+  description?: string | null
+  is_default: boolean
+  entries: DictionaryEntry[]
+}
+
+export type Voice = {
+  id: number
+  name: string
+  display_name: string
+  backend: string
+  model_name: string
+  description?: string | null
+  is_enabled: boolean
+  kind: string
+}
+
+export type TrainingDataset = {
+  id: number
+  name: string
+  speaker_name: string
+  language: string
+  file_path: string
+  note?: string | null
+  created_at: string
+}
+
+export type TrainingJob = {
+  id: number
+  dataset_id: number
+  base_model: string
+  output_name: string
+  status: string
+  progress: number
+  log?: string | null
+  artifact_path?: string | null
+  created_at: string
+  updated_at: string
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    headers: {
+      ...(init?.headers || {}),
+    },
+    ...init,
+  })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json() as Promise<T>
+}
+
+export const client = {
+  health: () => api<{ status: string }>('/api/v1/health'),
+  meta: () => api<Record<string, string>>('/api/v1/meta'),
+  listDictionaries: () => api<Dictionary[]>('/api/v1/dictionaries'),
+  createDictionary: (payload: { name: string; slug: string; description?: string; is_default?: boolean }) =>
+    api<Dictionary>('/api/v1/dictionaries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  addDictionaryEntry: (dictionaryId: number, payload: { source_text: string; spoken_text: string; note?: string }) =>
+    api<Dictionary>(`/api/v1/dictionaries/${dictionaryId}/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  deleteDictionaryEntry: (dictionaryId: number, entryId: number) =>
+    api<Dictionary>(`/api/v1/dictionaries/${dictionaryId}/entries/${entryId}`, { method: 'DELETE' }),
+  previewDictionary: (dictionaryId: number, text: string) =>
+    api<{ original_text: string; processed_text: string }>(`/api/v1/dictionaries/${dictionaryId}/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+  listVoices: () => api<Voice[]>('/api/v1/voices'),
+  enqueueLive: (payload: { session_id: string; text: string; dictionary_id?: number; voice_id?: string; lora_name?: string; language?: string }) =>
+    api<{ status: string }>('/api/v1/live/enqueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  previewLive: async (payload: { text: string; dictionary_id?: number; voice_id?: string; lora_name?: string; language?: string }) => {
+    const response = await fetch('/api/v1/live/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+    const processedHeader = response.headers.get('X-Processed-Text') || ''
+    let processedText = ''
+    try {
+      processedText = processedHeader ? decodeURIComponent(processedHeader) : ''
+    } catch {
+      processedText = processedHeader
+    }
+    return {
+      blob: await response.blob(),
+      processedText,
+    }
+  },
+  listDatasets: () => api<TrainingDataset[]>('/api/v1/training/datasets'),
+  uploadDataset: async (formData: FormData) => {
+    const response = await fetch('/api/v1/training/datasets', { method: 'POST', body: formData })
+    if (!response.ok) throw new Error(await response.text())
+    return response.json() as Promise<TrainingDataset>
+  },
+  listJobs: () => api<TrainingJob[]>('/api/v1/training/jobs'),
+  createTrainingJob: (payload: { dataset_id: number; base_model: string; output_name: string }) =>
+    api<TrainingJob>('/api/v1/training/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+}
+
+
+path: /frontend/src/App.tsx
+----------------------------------------
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { Layout } from './components/Layout'
+import { ToastProvider } from './components/Toast'
+import { DashboardPage } from './pages/DashboardPage'
+import { DictionaryPage } from './pages/DictionaryPage'
+import { TestingPage } from './pages/TestingPage'
+import { TrainingPage } from './pages/TrainingPage'
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Navigate to="/testing" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/testing" element={<TestingPage />} />
+          <Route path="/dictionary" element={<DictionaryPage />} />
+          <Route path="/training" element={<TrainingPage />} />
+        </Routes>
+      </Layout>
+    </ToastProvider>
+  )
+}
+
+
+path: /frontend/src/components/AudioPlayer.tsx
+----------------------------------------
+import { useEffect, useRef, useState } from 'react'
+
+export type AudioChunk = {
+  audio_b64: string
+  sample_rate: number
+  is_last?: boolean
+  seq_no: number
+}
+
+export function useAudioPlayer() {
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const scheduledTimeRef = useRef<number>(0)
+  const [queueSize, setQueueSize] = useState(0)
+
+  const initContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 })
+      scheduledTimeRef.current = audioContextRef.current.currentTime
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      void audioContextRef.current.resume()
+    }
+  }
+
+  const addChunk = async (chunk: AudioChunk) => {
+    initContext()
+    const ctx = audioContextRef.current!
+
+    // Convert base64 to ArrayBuffer
+    const binaryString = window.atob(chunk.audio_b64)
+    const len = binaryString.length
+    const bytes = new Uint8Array(len)
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+
+    // PCM S16LE to Float32
+    const pcmData = new Int16Array(bytes.buffer)
+    const floatData = new Float32Array(pcmData.length)
+    for (let i = 0; i < pcmData.length; i++) {
+      floatData[i] = pcmData[i] / 32768.0
+    }
+
+    const audioBuffer = ctx.createBuffer(1, floatData.length, chunk.sample_rate)
+    audioBuffer.getChannelData(0).set(floatData)
+
+    const source = ctx.createBufferSource()
+    source.buffer = audioBuffer
+    source.connect(ctx.destination)
+
+    const now = ctx.currentTime
+    if (scheduledTimeRef.current < now) {
+      scheduledTimeRef.current = now + 0.05 // Small buffer to prevent initial gap
+    }
+
+    source.start(scheduledTimeRef.current)
+    scheduledTimeRef.current += audioBuffer.duration
+
+    setQueueSize(prev => prev + 1)
+    setIsPlaying(true)
+
+    source.onended = () => {
+      setQueueSize(prev => {
+        const next = prev - 1
+        if (next === 0) setIsPlaying(false)
+        return next
+      })
+    }
+  }
+
+  const stop = () => {
+    if (audioContextRef.current) {
+      void audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    scheduledTimeRef.current = 0
+    setIsPlaying(false)
+    setQueueSize(0)
+  }
+
+  return { addChunk, stop, isPlaying, queueSize }
+}
+
+export function AudioPlayerStatus({ isPlaying, queueSize }: { isPlaying: boolean; queueSize: number }) {
+  if (!isPlaying && queueSize === 0) return null
+  return (
+    <div className="audio-status-badge">
+      <span className="dot pulse"></span>
+      {isPlaying ? 'Воспроизведение...' : 'Буферизация...'} ({queueSize})
+    </div>
+  )
+}
+
+
+path: /frontend/src/components/Layout.tsx
+----------------------------------------
+import { NavLink } from 'react-router-dom'
+import type { PropsWithChildren } from 'react'
+
+const links = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/testing', label: 'Тестирование' },
+  { to: '/dictionary', label: 'Словари' },
+  { to: '/training', label: 'Fine-tuning' },
+]
+
+export function Layout({ children }: PropsWithChildren) {
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <h1>TTS Admin</h1>
+        <p className="subtitle">Тестирование, словари и обучение</p>
+        <nav className="nav">
+          {links.map((link) => (
+            <NavLink key={link.to} to={link.to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              {link.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      <main className="content">{children}</main>
+    </div>
+  )
+}
+
+
+path: /frontend/src/components/Toast.tsx
+----------------------------------------
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+
+type ToastType = 'success' | 'error' | 'info'
+
+interface Toast {
+  id: number
+  message: string
+  type: ToastType
+}
+
+interface ToastContextType {
+  show: (message: string, type?: ToastType) => void
+}
+
+const ToastContext = createContext<ToastContextType | undefined>(undefined)
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  const show = useCallback((message: string, type: ToastType = 'info') => {
+    const id = Date.now()
+    setToasts((prev) => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 4000)
+  }, [])
+
+  return (
+    <ToastContext.Provider value={{ show }}>
+      {children}
+      <div className="toast-container">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast toast-${toast.type}`}>
+            {toast.message}
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  )
+}
+
+export const useToast = () => {
+  const context = useContext(ToastContext)
+  if (!context) throw new Error('useToast must be used within ToastProvider')
+  return context
+}
+
+
+path: /frontend/src/main.tsx
+----------------------------------------
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import App from './App'
+import './styles.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>,
+)
+
+
+path: /frontend/src/pages/DashboardPage.tsx
+----------------------------------------
+import { useEffect, useState } from 'react'
+import { client } from '../api/client'
+
+export function DashboardPage() {
+  const [health, setHealth] = useState<string>('loading')
+  const [meta, setMeta] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    client.health().then((data) => setHealth(data.status)).catch(() => setHealth('error'))
+    client.meta().then(setMeta).catch(() => setMeta({ error: 'failed to load' }))
+  }, [])
+
+  return (
+    <div className="page-grid">
+      <section className="card">
+        <h2>Состояние сервиса</h2>
+        <p className="metric">{health}</p>
+      </section>
+      <section className="card">
+        <h2>Backend meta</h2>
+        <pre>{JSON.stringify(meta, null, 2)}</pre>
+      </section>
+      <section className="card wide">
+        <h2>Что проверять после деплоя</h2>
+        <ol>
+          <li>health/meta</li>
+          <li>WebSocket соединение</li>
+          <li>enqueue текста и first audio latency</li>
+          <li>preview произношения</li>
+          <li>upload dataset и training jobs</li>
+        </ol>
+      </section>
+    </div>
+  )
+}
+
+
+path: /frontend/src/pages/DictionaryPage.tsx
+----------------------------------------
+import { useEffect, useState } from 'react'
+import { client, type Dictionary } from '../api/client'
+
+export function DictionaryPage() {
+  const [dictionaries, setDictionaries] = useState<Dictionary[]>([])
+  const [selectedId, setSelectedId] = useState<number | undefined>(undefined)
+  const [newName, setNewName] = useState('Team Tech')
+  const [newSlug, setNewSlug] = useState('team-tech')
+  const [sourceText, setSourceText] = useState('WebSocket')
+  const [spokenText, setSpokenText] = useState('Веб сокет')
+  const [previewText, setPreviewText] = useState('Наш сервис использует WebSocket и FastAPI для live режима.')
+  const [previewResult, setPreviewResult] = useState('')
+
+  const load = async () => {
+    const rows = await client.listDictionaries()
+    setDictionaries(rows)
+    setSelectedId((current) => current ?? rows[0]?.id)
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const selected = dictionaries.find((item) => item.id === selectedId)
+
+  const createDictionary = async () => {
+    await client.createDictionary({ name: newName, slug: newSlug })
+    await load()
+  }
+
+  const addEntry = async () => {
+    if (!selectedId) return
+    await client.addDictionaryEntry(selectedId, { source_text: sourceText, spoken_text: spokenText })
+    await load()
+  }
+
+  const removeEntry = async (entryId: number) => {
+    if (!selectedId) return
+    await client.deleteDictionaryEntry(selectedId, entryId)
+    await load()
+  }
+
+  const preview = async () => {
+    if (!selectedId) return
+    const result = await client.previewDictionary(selectedId, previewText)
+    setPreviewResult(result.processed_text)
+  }
+
+  return (
+    <div className="page-grid">
+      <section className="card">
+        <h2>Создать словарь</h2>
+        <label>Название</label>
+        <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <label>Slug</label>
+        <input value={newSlug} onChange={(e) => setNewSlug(e.target.value)} />
+        <button onClick={createDictionary}>Создать</button>
+      </section>
+
+      <section className="card wide">
+        <h2>Работа со словарем</h2>
+        <label>Активный словарь</label>
+        <select value={selectedId} onChange={(e) => setSelectedId(Number(e.target.value))}>
+          {dictionaries.map((dictionary) => (
+            <option key={dictionary.id} value={dictionary.id}>{dictionary.name}</option>
+          ))}
+        </select>
+        <div className="grid two">
+          <div>
+            <label>Слово</label>
+            <input value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
+          </div>
+          <div>
+            <label>Как читать</label>
+            <input value={spokenText} onChange={(e) => setSpokenText(e.target.value)} />
+          </div>
+        </div>
+        <button onClick={addEntry}>Добавить запись</button>
+
+        <h3>Записи словаря</h3>
+        <div className="table-like">
+          {selected?.entries.map((entry) => (
+            <div className="table-row" key={entry.id}>
+              <span>{entry.source_text}</span>
+              <span>{entry.spoken_text}</span>
+              <button onClick={() => removeEntry(entry.id)}>Удалить</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="card wide">
+        <h2>Быстрая проверка произношения</h2>
+        <textarea rows={5} value={previewText} onChange={(e) => setPreviewText(e.target.value)} />
+        <button onClick={preview}>Проверить</button>
+        {previewResult && (
+          <div className="preview-box">
+            <strong>Результат препроцессинга</strong>
+            <p>{previewResult}</p>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+
+path: /frontend/src/pages/TestingPage.tsx
+----------------------------------------
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { client, type Dictionary, type Voice } from '../api/client'
+import { AudioPlayerStatus, useAudioPlayer } from '../components/AudioPlayer'
+import { useToast } from '../components/Toast'
+
+function randomSessionId() {
+  return `session-${Math.random().toString(36).slice(2, 10)}`
+}
+
+export function TestingPage() {
+  const { show } = useToast()
+  const { addChunk, stop: stopAudio, isPlaying, queueSize } = useAudioPlayer()
+  const [sessionId, setSessionId] = useState(randomSessionId())
+  const [text, setText] = useState('В Python функция __init__ вызывается при создании объекта. В React часто используют useEffect.')
+  const [dictionaries, setDictionaries] = useState<Dictionary[]>([])
+  const [voices, setVoices] = useState<Voice[]>([])
+  const [dictionaryId, setDictionaryId] = useState<number | undefined>(undefined)
+  const [voiceId, setVoiceId] = useState<string | undefined>(undefined)
+  const [loraName, setLoraName] = useState<string | undefined>(undefined)
+  const [events, setEvents] = useState<string[]>([])
+  const [previewUrl, setPreviewUrl] = useState<string>('')
+  const [previewProcessedText, setPreviewProcessedText] = useState<string>('')
+  const [quickSource, setQuickSource] = useState('FastAPI')
+  const [quickSpoken, setQuickSpoken] = useState('Фаст Эй Пи Ай')
+  const [status, setStatus] = useState('disconnected')
+  const [isEnqueuing, setIsEnqueuing] = useState(false)
+  const [isPreviewing, setIsPreviewing] = useState(false)
+  const websocketRef = useRef<WebSocket | null>(null)
+
+  const voiceOptions = useMemo(() => voices.filter((voice) => voice.kind === 'voice'), [voices])
+  const loraOptions = useMemo(() => voices.filter((voice) => voice.kind === 'lora'), [voices])
+
+  useEffect(() => {
+    refreshData()
+    return () => disconnect()
+  }, [])
+
+  const refreshData = async () => {
+    const [dicts, voiceRows] = await Promise.all([client.listDictionaries(), client.listVoices()])
+    setDictionaries(dicts)
+    setVoices(voiceRows)
+    setDictionaryId((current) => current ?? dicts.find((item) => item.is_default)?.id ?? dicts[0]?.id)
+    setVoiceId((current) => current ?? voiceRows.find((item) => item.kind === 'voice')?.name)
+    setLoraName((current) => current ?? voiceRows.find((item) => item.kind === 'lora')?.name)
+  }
+
+  const log = (message: string) => setEvents((prev) => [message, ...prev].slice(0, 60))
+
+  const connect = () => {
+    if (websocketRef.current) return
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${protocol}://${window.location.host}/api/v1/live/ws/${sessionId}`)
+    websocketRef.current = ws
+    setStatus('connecting')
+    ws.onopen = () => {
+      setStatus('connected')
+      log(`WS connected: ${sessionId}`)
+    }
+    ws.onclose = () => {
+      setStatus('disconnected')
+      websocketRef.current = null
+      log('WS disconnected')
+    }
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+      log(`${message.type}: ${JSON.stringify(message)}`)
+      if (message.type === 'audio.chunk' && message.audio_b64) {
+        void addChunk(message)
+      } else if (message.type === 'job.error') {
+        show(message.error || 'Ошибка синтеза', 'error')
+      }
+    }
+  }
+
+  const disconnect = () => {
+    websocketRef.current?.close()
+    websocketRef.current = null
+    setStatus('disconnected')
+    stopAudio()
+  }
+
+  const sendViaRest = async () => {
+    if (isEnqueuing) return
+    setIsEnqueuing(true)
+    try {
+      await client.enqueueLive({
+        session_id: sessionId,
+        text,
+        dictionary_id: dictionaryId,
+        voice_id: voiceId,
+        lora_name: loraName,
+        language: 'ru',
+      })
+      log('REST enqueue success')
+    } catch (e) {
+      show('Ошибка enqueue через API', 'error')
+    } finally {
+      setIsEnqueuing(false)
+    }
+  }
+
+  const sendViaWs = () => {
+    if (!websocketRef.current || websocketRef.current.readyState !== WebSocket.OPEN) {
+      show('WebSocket не подключен', 'info')
+      return
+    }
+    websocketRef.current.send(
+      JSON.stringify({
+        type: 'enqueue_text',
+        text,
+        dictionary_id: dictionaryId,
+        voice_id: voiceId,
+        lora_name: loraName,
+        language: 'ru',
+      }),
+    )
+    log('WS enqueue success')
+  }
+
+  const quickAddToDictionary = async () => {
+    if (!dictionaryId) return
+    try {
+      await client.addDictionaryEntry(dictionaryId, { source_text: quickSource, spoken_text: quickSpoken })
+      await refreshData()
+      show('Запись добавлена в словарь', 'success')
+      log(`Added entry ${quickSource} -> ${quickSpoken}`)
+    } catch (e) {
+      show('Ошибка добавления в словарь', 'error')
+    }
+  }
+
+  const preview = async () => {
+    if (isPreviewing) return
+    setIsPreviewing(true)
+    try {
+      const result = await client.previewLive({ text, dictionary_id: dictionaryId, voice_id: voiceId, lora_name: loraName })
+      const url = URL.createObjectURL(result.blob)
+      setPreviewUrl(url)
+      setPreviewProcessedText(result.processedText)
+    } catch (e) {
+      show('Ошибка превью', 'error')
+    } finally {
+      setIsPreviewing(false)
+    }
+  }
+
+  return (
+    <div className="page-grid">
+      <section className="card wide">
+        <div className="row space-between">
+          <h2>Модуль тестирования</h2>
+          <AudioPlayerStatus isPlaying={isPlaying} queueSize={queueSize} />
+        </div>
+
+        <div className="grid two">
+          <div>
+            <label>Session ID</label>
+            <div className="row">
+              <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
+              <button onClick={() => setSessionId(randomSessionId())}>New</button>
+            </div>
+          </div>
+          <div>
+            <label>Live Connection</label>
+            <div className="row">
+              <button onClick={connect} disabled={status === 'connected'}>Connect</button>
+              <button onClick={disconnect} disabled={status === 'disconnected'}>Disconnect</button>
+              <span className={`badge badge-${status}`}>{status}</span>
+            </div>
+          </div>
+        </div>
+
+        <label>Текст / буфер</label>
+        <textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
+
+        <div className="grid two">
+          <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: '15px' }}>
+            <label>Словарь</label>
+            <select value={dictionaryId} onChange={(e) => setDictionaryId(Number(e.target.value))}>
+              {dictionaries.map((dictionary) => (
+                <option key={dictionary.id} value={dictionary.id}>{dictionary.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: '15px' }}>
+            <div className="grid two">
+              <div>
+                <label>Голос</label>
+                <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
+                  {voiceOptions.map((voice) => (
+                    <option key={voice.id} value={voice.name}>{voice.display_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>LoRA / Стиль</label>
+                <select value={loraName} onChange={(e) => setLoraName(e.target.value)}>
+                  {loraOptions.map((voice) => (
+                    <option key={voice.id} value={voice.name}>{voice.display_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="row wrap" style={{ marginTop: '20px' }}>
+          <button onClick={sendViaRest} disabled={isEnqueuing}>Enqueue (REST)</button>
+          <button onClick={sendViaWs}>Enqueue (WebSocket)</button>
+          <button onClick={preview} disabled={isPreviewing}>Preview (WAV)</button>
+          {isPlaying && <button onClick={stopAudio} style={{ background: '#991b1b' }}>Stop Audio</button>}
+        </div>
+        {previewProcessedText && (
+          <div className="preview-box">
+            <strong>Processed text:</strong>
+            <p>{previewProcessedText}</p>
+          </div>
+        )}
+        {previewUrl && <audio controls src={previewUrl} />}
+      </section>
+
+      <section className="card">
+        <h2>Быстро добавить слово в словарь</h2>
+        <label>Исходная форма</label>
+        <input value={quickSource} onChange={(e) => setQuickSource(e.target.value)} />
+        <label>Как читать</label>
+        <input value={quickSpoken} onChange={(e) => setQuickSpoken(e.target.value)} />
+        <button onClick={quickAddToDictionary}>Добавить в активный словарь</button>
+      </section>
+
+      <section className="card">
+        <h2>Лог live событий</h2>
+        <div className="log-box">
+          {events.map((eventLine, index) => (
+            <div key={`${eventLine}-${index}`}>{eventLine}</div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+
+path: /frontend/src/pages/TrainingPage.tsx
+----------------------------------------
+import { useEffect, useMemo, useState } from 'react'
+import { client, type TrainingDataset, type TrainingJob } from '../api/client'
+
+export function TrainingPage() {
+  const [datasets, setDatasets] = useState<TrainingDataset[]>([])
+  const [jobs, setJobs] = useState<TrainingJob[]>([])
+  const [name, setName] = useState('Ivan voice dataset')
+  const [speakerName, setSpeakerName] = useState('Ivan')
+  const [language, setLanguage] = useState('ru')
+  const [note, setNote] = useState('16k+ wav/flac + transcripts recommended.')
+  const [file, setFile] = useState<File | null>(null)
+  const [datasetId, setDatasetId] = useState<number | undefined>(undefined)
+  const [baseModel, setBaseModel] = useState('Qwen/Qwen3-TTS-12Hz-1.7B-Base')
+  const [outputName, setOutputName] = useState('ivan-tech-voice')
+
+  const refresh = async () => {
+    const [datasetRows, jobRows] = await Promise.all([client.listDatasets(), client.listJobs()])
+    setDatasets(datasetRows)
+    setJobs(jobRows)
+    setDatasetId((current) => current ?? datasetRows[0]?.id)
+  }
+
+  useEffect(() => {
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 5000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const upload = async () => {
+    if (!file) return
+    const formData = new FormData()
+    formData.append('name', name)
+    formData.append('speaker_name', speakerName)
+    formData.append('language', language)
+    formData.append('note', note)
+    formData.append('file', file)
+    await client.uploadDataset(formData)
+    setFile(null)
+    await refresh()
+  }
+
+  const createJob = async () => {
+    if (!datasetId) return
+    await client.createTrainingJob({ dataset_id: datasetId, base_model: baseModel, output_name: outputName })
+    await refresh()
+  }
+
+  return (
+    <div className="page-grid">
+      <section className="card wide">
+        <h2>Инструкция по fine-tuning</h2>
+        <ol>
+          <li>Подготовьте архив датасета с аудио и транскриптами.</li>
+          <li>Загрузите датасет через форму ниже.</li>
+          <li>Создайте training job с выбранной base model.</li>
+          <li>Наблюдайте статус и артефакты в таблице jobs.</li>
+          <li>Замените trainer stub на реальный recipe для Qwen/CosyVoice.</li>
+        </ol>
+      </section>
+
+      <section className="card">
+        <h2>Добавить датасет</h2>
+        <label>Название</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <label>Имя спикера</label>
+        <input value={speakerName} onChange={(e) => setSpeakerName(e.target.value)} />
+        <label>Язык</label>
+        <input value={language} onChange={(e) => setLanguage(e.target.value)} />
+        <label>Комментарий</label>
+        <textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)} />
+        <label>Файл архива</label>
+        <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <button onClick={upload}>Загрузить датасет</button>
+      </section>
+
+      <section className="card">
+        <h2>Запустить обучение</h2>
+        <label>Датасет</label>
+        <select value={datasetId} onChange={(e) => setDatasetId(Number(e.target.value))}>
+          {datasets.map((dataset) => (
+            <option key={dataset.id} value={dataset.id}>{dataset.name}</option>
+          ))}
+        </select>
+        <label>Base model</label>
+        <input value={baseModel} onChange={(e) => setBaseModel(e.target.value)} />
+        <label>Имя результата</label>
+        <input value={outputName} onChange={(e) => setOutputName(e.target.value)} />
+        <button onClick={createJob}>Создать training job</button>
+      </section>
+
+      <section className="card wide">
+        <h2>Datasets</h2>
+        <div className="table-like">
+          {datasets.map((dataset) => (
+            <div className="table-row" key={dataset.id}>
+              <span>#{dataset.id}</span>
+              <span>{dataset.name}</span>
+              <span>{dataset.speaker_name}</span>
+              <span>{dataset.language}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="card wide">
+        <h2>Training jobs</h2>
+        <div className="jobs-list">
+          {jobs.map((job) => (
+            <article className="job-card" key={job.id}>
+              <div className="row space-between">
+                <strong>Job #{job.id}</strong>
+                <span className={`badge badge-${job.status}`}>{job.status}</span>
+              </div>
+              <p>Dataset: {job.dataset_id}</p>
+              <p>Model: {job.base_model}</p>
+              <p>Output: {job.output_name}</p>
+              <p>Progress: {job.progress}%</p>
+              <pre>{job.log}</pre>
+              {job.artifact_path && <p>Artifacts: {job.artifact_path}</p>}
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+
+path: /frontend/tsconfig.json
+----------------------------------------
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"],
+  "references": []
+}
+
+
+path: /frontend/vite.config.ts
+----------------------------------------
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': 'http://localhost:8000',
+      '/ws': {
+        target: 'ws://localhost:8000',
+        ws: true,
+      },
+    },
+  },
+})
+
+
+path: /infra/nginx/npm-example.conf
+----------------------------------------
+server {
+    listen 80;
+    server_name tts.example.com;
+
+    location / {
+        proxy_pass http://web:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+
+=== SUMMARY ===
+included: 58
+skipped(binary): 0
+skipped(size): 0
+skipped(ext): 0
+totalBytes(approx): 98607
