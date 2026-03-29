@@ -47,6 +47,7 @@ services:
       - ./data:/data
     ports:
       - "8000:8000"
+    gpus: all
 
   trainer:
     image: tts-trainer:dev
@@ -69,8 +70,10 @@ services:
     volumes:
       - ./data:/data
     profiles: ["trainer"]
+    gpus: all
 
   web:
+    image: tts_service_stack-web
     build:
       context: ./frontend
     depends_on:
