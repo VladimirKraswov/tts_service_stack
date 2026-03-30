@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
-    python -m pip install --upgrade pip setuptools wheel
+    python -m pip install --upgrade "pip<25.1" "setuptools<82" wheel packaging
 
 RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOICE_ROOT} && \
     cd ${COSYVOICE_ROOT} && \
@@ -35,14 +35,24 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOI
 RUN python -m pip install \
       --index-url https://download.pytorch.org/whl/cu121 \
       torch==2.3.1 \
-      torchaudio==2.3.1 && \
-    python -m pip install -r ${COSYVOICE_ROOT}/requirements.txt
+      torchaudio==2.3.1
+
+# Ставим whisper отдельно, без build isolation, чтобы он использовал наш setuptools<82
+RUN python -m pip install --no-build-isolation openai-whisper==20231117
+
+# Удаляем whisper из requirements, чтобы pip не пытался собрать его повторно
+RUN grep -v '^openai-whisper==20231117$' ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
+    python -m pip install -r /tmp/cosyvoice-requirements.txt
 
 RUN python - <<'PY'
 import sys
 print("python:", sys.version)
+
 import torch
 print("torch:", torch.__version__)
 print("cuda:", torch.version.cuda)
 print("cuda available:", torch.cuda.is_available())
+
+import whisper
+print("whisper:", whisper.__file__)
 PY
