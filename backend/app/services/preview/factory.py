@@ -12,13 +12,11 @@ def get_preview_engine() -> PreviewEngine:
         return _engine
 
     settings = get_settings()
-    backend = settings.resolved_preview_backend
+    backend = settings.effective_preview_backend
 
     if backend == 'qwen':
         _engine = QwenPreviewEngine()
-    elif backend == 'mock':
-        _engine = MockPreviewEngine()
     else:
-        raise ValueError(f'Unsupported preview backend: {backend}')
+        _engine = MockPreviewEngine()
 
     return _engine

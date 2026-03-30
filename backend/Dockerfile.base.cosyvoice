@@ -37,10 +37,8 @@ RUN python -m pip install \
       torch==2.3.1 \
       torchaudio==2.3.1
 
-# Ставим whisper отдельно, без build isolation, чтобы он использовал наш setuptools<82
 RUN python -m pip install --no-build-isolation openai-whisper==20231117
 
-# Удаляем whisper из requirements, чтобы pip не пытался собрать его повторно
 RUN grep -v '^openai-whisper==20231117$' ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
     python -m pip install -r /tmp/cosyvoice-requirements.txt
 

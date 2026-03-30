@@ -38,6 +38,9 @@ services:
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
       HF_HOME: /data/huggingface
       HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+      INIT_DB: "true"
+      PREVIEW_BACKEND: qwen
+      LIVE_BACKEND: mock
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,6 +50,43 @@ services:
       - ./data:/data
     ports:
       - "8000:8000"
+    gpus: all
+
+  live_tts:
+    image: tts-live-cosyvoice:dev
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.live
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATA_DIR: /data
+      HF_HOME: /data/huggingface
+      HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+      INIT_DB: "false"
+      PREVIEW_BACKEND: mock
+      LIVE_BACKEND: cosyvoice2
+      COSYVOICE_MODEL_DIR: /data/models/CosyVoice2-0.5B
+      COSYVOICE_PROMPT_DIR: /data/cosyvoice_prompts
+      COSYVOICE_DEFAULT_PROMPT_NAME: default
+      COSYVOICE_STREAM: "true"
+      COSYVOICE_TEXT_FRONTEND: "true"
+      COSYVOICE_SPEED: "1.0"
+      COSYVOICE_FP16: "true"
+      COSYVOICE_LOAD_JIT: "false"
+      COSYVOICE_LOAD_TRT: "false"
+      COSYVOICE_LOAD_VLLM: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./data:/data
     gpus: all
 
   trainer:
@@ -62,11 +102,14 @@ services:
       DATA_DIR: /data
       HF_HOME: /data/huggingface
       HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+      INIT_DB: "false"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api:
+        condition: service_started
     volumes:
       - ./data:/data
     profiles: ["trainer"]
@@ -78,6 +121,7 @@ services:
       context: ./frontend
     depends_on:
       - api
+      - live_tts
     ports:
       - "8080:80"
 

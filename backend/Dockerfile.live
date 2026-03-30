@@ -9,6 +9,7 @@ ENV PREVIEW_BACKEND=mock \
     COSYVOICE_ROOT=/opt/CosyVoice \
     COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B \
     COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts \
+    COSYVOICE_DEFAULT_PROMPT_NAME=default \
     COSYVOICE_STREAM=true \
     COSYVOICE_TEXT_FRONTEND=true \
     COSYVOICE_SPEED=1.0 \

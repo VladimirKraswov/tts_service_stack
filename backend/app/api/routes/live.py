@@ -130,16 +130,21 @@ async def flush_buffer(request: Request, payload: LiveFlushRequest) -> dict[str,
 @router.websocket('/ws/{session_id}')
 async def live_ws(websocket: WebSocket, session_id: str) -> None:
     manager = websocket.app.state.live_manager
-    await websocket.accept()
 
     try:
         await manager.connect(session_id, websocket)
     except Exception as exc:
         try:
-            await websocket.send_json({
-                'type': 'job.error',
-                'error': f'Live session init failed: {exc}',
-            })
+            await websocket.accept()
+        except Exception:
+            pass
+        try:
+            await websocket.send_json(
+                {
+                    'type': 'job.error',
+                    'error': f'Live session init failed: {exc}',
+                }
+            )
         except Exception:
             pass
         try:

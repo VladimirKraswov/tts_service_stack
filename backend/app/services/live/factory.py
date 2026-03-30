@@ -3,7 +3,6 @@ from app.services.live.base import LiveEngine
 from app.services.live.cosyvoice2 import CosyVoice2LiveEngine
 from app.services.live.mock import MockLiveEngine
 from app.services.live.qwen import QwenLiveEngine
-from app.services.live.qwen_realtime import QwenRealtimeLiveEngine
 
 _engine: LiveEngine | None = None
 
@@ -14,17 +13,13 @@ def get_live_engine() -> LiveEngine:
         return _engine
 
     settings = get_settings()
-    backend = settings.resolved_live_backend
+    backend = settings.effective_live_backend
 
-    if backend == 'cosyvoice2':
+    if backend in {'cosyvoice2', 'cosyvoice'}:
         _engine = CosyVoice2LiveEngine()
-    elif backend == 'qwen_realtime':
-        _engine = QwenRealtimeLiveEngine()
     elif backend == 'qwen':
         _engine = QwenLiveEngine()
-    elif backend == 'mock':
-        _engine = MockLiveEngine()
     else:
-        raise ValueError(f'Unsupported live backend: {backend}')
+        _engine = MockLiveEngine()
 
     return _engine

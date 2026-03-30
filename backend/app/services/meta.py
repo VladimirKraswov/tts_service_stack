@@ -10,11 +10,10 @@ def get_meta() -> dict:
 
     return {
         'app_title': settings.app_title,
-        'tts_backend_legacy': settings.tts_backend,
-        'preview_backend': settings.resolved_preview_backend,
-        'live_backend': settings.resolved_live_backend,
+        'tts_backend': settings.tts_backend,
+        'preview_backend': settings.effective_preview_backend,
+        'live_backend': settings.effective_live_backend,
         'qwen_model_name': settings.qwen_model_name,
-        'cosyvoice_model_dir': settings.cosyvoice_model_dir,
         'preview_engine_class': preview_engine.__class__.__name__,
         'live_engine_class': live_engine.__class__.__name__,
     }

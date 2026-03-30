@@ -16,7 +16,8 @@ def _ensure_voice(
     description: str,
     kind: str = 'voice',
 ) -> None:
-    if not session.scalar(select(VoiceProfile).where(VoiceProfile.name == name)):
+    existing = session.scalar(select(VoiceProfile).where(VoiceProfile.name == name))
+    if existing is None:
         session.add(
             VoiceProfile(
                 name=name,
@@ -28,15 +29,19 @@ def _ensure_voice(
                 kind=kind,
             )
         )
+        return
+
+    existing.display_name = display_name
+    existing.backend = backend
+    existing.model_name = model_name
+    existing.description = description
+    existing.is_enabled = True
+    existing.kind = kind
 
 
 def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
-
-    preview_backend = settings.resolved_preview_backend
-    live_backend = settings.resolved_live_backend
-    qwen_needed = preview_backend == 'qwen' or live_backend in {'qwen', 'qwen_realtime'}
 
     with SessionLocal() as session:
         default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
@@ -49,7 +54,6 @@ def init_db() -> None:
             )
             session.add(default_dictionary)
             session.flush()
-
             entries = [
                 ('Python', 'Пайтон', 'Название языка Python'),
                 ('Java', 'Джава', 'Название языка Java'),
@@ -70,7 +74,7 @@ def init_db() -> None:
                     )
                 )
 
-        if qwen_needed:
+        if settings.effective_preview_backend == 'qwen':
             qwen_model = settings.qwen_model_name
             qwen_voices = [
                 ('qwen-vivian', 'Qwen Vivian', 'Vivian', 'Яркий молодой женский голос.'),
@@ -86,14 +90,7 @@ def init_db() -> None:
                 ('system-warm', 'System Warm', 'Serena', 'Совместимый системный alias для теплого голоса.'),
             ]
             for name, display_name, speaker, description in qwen_voices:
-                _ensure_voice(
-                    session,
-                    name,
-                    display_name,
-                    'qwen',
-                    qwen_model,
-                    f'{description} Speaker={speaker}',
-                )
+                _ensure_voice(session, name, display_name, 'qwen', qwen_model, f'{description} Speaker={speaker}')
             _ensure_voice(
                 session,
                 'tech-lora-v1',
@@ -122,22 +119,8 @@ def init_db() -> None:
                 kind='lora',
             )
         else:
-            _ensure_voice(
-                session,
-                'system-neutral',
-                'System Neutral',
-                'mock',
-                'mock://neutral',
-                'Базовый нейтральный голос',
-            )
-            _ensure_voice(
-                session,
-                'system-warm',
-                'System Warm',
-                'mock',
-                'mock://warm',
-                'Теплый голос для тестов',
-            )
+            _ensure_voice(session, 'system-neutral', 'System Neutral', 'mock', 'mock://neutral', 'Базовый нейтральный голос')
+            _ensure_voice(session, 'system-warm', 'System Warm', 'mock', 'mock://warm', 'Теплый голос для тестов')
             _ensure_voice(
                 session,
                 'tech-lora-v1',

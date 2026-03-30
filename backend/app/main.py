@@ -26,6 +26,11 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 
+def _should_init_db() -> bool:
+    raw = os.getenv('INIT_DB', 'true').strip().lower()
+    return raw in {'1', 'true', 'yes', 'on'}
+
+
 async def _safe_warmup(app: FastAPI) -> None:
     try:
         logger.info('Background warmup: preview engine...')
@@ -44,7 +49,7 @@ async def _safe_warmup(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not os.getenv("TESTING"):
+    if not os.getenv('TESTING') and _should_init_db():
         init_db()
 
     preview_engine = get_preview_engine()
@@ -61,7 +66,6 @@ async def lifespan(app: FastAPI):
     app.state.warmup_task = None
 
     try:
-        # ВАЖНО: не блокируем запуск API прогревом модели
         app.state.warmup_task = asyncio.create_task(_safe_warmup(app), name='tts-background-warmup')
         yield
     finally:
