@@ -1,4 +1,4 @@
-FROM tts-ml-base:cu128
+FROM tts-ml-base:cu128-flash
 
 WORKDIR /app
 

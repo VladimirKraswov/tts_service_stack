@@ -69,6 +69,7 @@ class QwenRuntime:
         self._supported_speakers: dict[str, str] = {}
         self._supported_languages: dict[str, str] = {}
         self._instruction_kwarg: str | None = None
+        self._active_attn_implementation: str | None = None
 
     async def warmup(self) -> None:
         await self._ensure_model()
@@ -99,19 +100,25 @@ class QwenRuntime:
             }
             dtype = dtype_map.get(self.settings.qwen_dtype.lower(), torch.bfloat16)
 
+            requested_attn = (self.settings.qwen_attn_implementation or 'sdpa').strip()
+
             logger.info(
                 'Loading Qwen3-TTS model=%s device=%s dtype=%s attn=%s',
                 self.settings.qwen_model_name,
                 self.settings.qwen_device,
                 self.settings.qwen_dtype,
-                self.settings.qwen_attn_implementation,
+                requested_attn,
             )
 
-            self._model = Qwen3TTSModel.from_pretrained(
-                self.settings.qwen_model_name,
-                device_map=self.settings.qwen_device,
+            self._model, self._active_attn_implementation = self._load_model_with_fallback(
+                model_cls=Qwen3TTSModel,
                 dtype=dtype,
-                attn_implementation=self.settings.qwen_attn_implementation,
+                requested_attn=requested_attn,
+            )
+
+            logger.info(
+                'Qwen3-TTS model loaded successfully with attn=%s',
+                self._active_attn_implementation,
             )
 
             try:
@@ -140,6 +147,37 @@ class QwenRuntime:
             except Exception:
                 self._instruction_kwarg = 'instruct'
 
+    def _load_model_with_fallback(self, model_cls, dtype, requested_attn: str):
+        attempts: list[str] = []
+        for item in [requested_attn, 'sdpa', 'eager']:
+            if item and item not in attempts:
+                attempts.append(item)
+
+        last_exc: Exception | None = None
+
+        for attn_impl in attempts:
+            try:
+                logger.info('Trying Qwen load with attn=%s', attn_impl)
+                model = model_cls.from_pretrained(
+                    self.settings.qwen_model_name,
+                    device_map=self.settings.qwen_device,
+                    dtype=dtype,
+                    attn_implementation=attn_impl,
+                )
+                return model, attn_impl
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    'Qwen load failed with attn=%s: %s',
+                    attn_impl,
+                    exc,
+                )
+
+        raise RuntimeError(
+            f'Failed to load Qwen model "{self.settings.qwen_model_name}" '
+            f'on device "{self.settings.qwen_device}" with attempts {attempts}: {last_exc}'
+        ) from last_exc
+
     def _resolve_speaker(self, voice_id: str | None) -> str:
         requested = VOICE_ALIASES.get(voice_id or '', voice_id or 'Ryan')
         if not self._supported_speakers:
@@ -161,11 +199,12 @@ class QwenRuntime:
         instruct_text = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
 
         logger.info(
-            'Qwen synth start speaker=%s language=%s chars=%s lora=%s',
+            'Qwen synth start speaker=%s language=%s chars=%s lora=%s attn=%s',
             speaker,
             language,
             len(request.text),
             request.lora_name,
+            self._active_attn_implementation,
         )
 
         kwargs = {
