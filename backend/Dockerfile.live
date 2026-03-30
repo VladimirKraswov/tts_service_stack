@@ -1,0 +1,20 @@
+FROM tts-cosyvoice-base:cu121
+
+WORKDIR /app
+
+COPY app ./app
+
+ENV PREVIEW_BACKEND=mock \
+    LIVE_BACKEND=cosyvoice2 \
+    COSYVOICE_ROOT=/opt/CosyVoice \
+    COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B \
+    COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts \
+    COSYVOICE_STREAM=true \
+    COSYVOICE_TEXT_FRONTEND=true \
+    COSYVOICE_SPEED=1.0 \
+    COSYVOICE_FP16=true \
+    COSYVOICE_LOAD_JIT=false \
+    COSYVOICE_LOAD_TRT=false \
+    COSYVOICE_LOAD_VLLM=false
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

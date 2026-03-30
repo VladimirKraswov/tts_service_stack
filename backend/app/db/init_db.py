@@ -34,6 +34,10 @@ def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
 
+    preview_backend = settings.resolved_preview_backend
+    live_backend = settings.resolved_live_backend
+    qwen_needed = preview_backend == 'qwen' or live_backend in {'qwen', 'qwen_realtime'}
+
     with SessionLocal() as session:
         default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
         if default_dictionary is None:
@@ -66,7 +70,7 @@ def init_db() -> None:
                     )
                 )
 
-        if settings.tts_backend in {'qwen', 'qwen_realtime'}:
+        if qwen_needed:
             qwen_model = settings.qwen_model_name
             qwen_voices = [
                 ('qwen-vivian', 'Qwen Vivian', 'Vivian', 'Яркий молодой женский голос.'),
@@ -90,7 +94,6 @@ def init_db() -> None:
                     qwen_model,
                     f'{description} Speaker={speaker}',
                 )
-
             _ensure_voice(
                 session,
                 'tech-lora-v1',
@@ -119,8 +122,30 @@ def init_db() -> None:
                 kind='lora',
             )
         else:
-            _ensure_voice(session, 'system-neutral', 'System Neutral', 'mock', 'mock://neutral', 'Базовый нейтральный голос')
-            _ensure_voice(session, 'system-warm', 'System Warm', 'mock', 'mock://warm', 'Теплый голос для тестов')
-            _ensure_voice(session, 'tech-lora-v1', 'Tech LoRA v1', 'mock', 'mock://tech-lora-v1', 'LoRA для техтекста', kind='lora')
+            _ensure_voice(
+                session,
+                'system-neutral',
+                'System Neutral',
+                'mock',
+                'mock://neutral',
+                'Базовый нейтральный голос',
+            )
+            _ensure_voice(
+                session,
+                'system-warm',
+                'System Warm',
+                'mock',
+                'mock://warm',
+                'Теплый голос для тестов',
+            )
+            _ensure_voice(
+                session,
+                'tech-lora-v1',
+                'Tech LoRA v1',
+                'mock',
+                'mock://tech-lora-v1',
+                'LoRA для техтекста',
+                kind='lora',
+            )
 
         session.commit()

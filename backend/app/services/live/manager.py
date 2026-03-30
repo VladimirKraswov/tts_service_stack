@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import time
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveStreamSession, LiveSynthesisRequest
+from app.services.live.base import LiveEngine, LiveStreamSession, LiveSynthesisRequest
 from app.services.live.preprocessor import LiveTextPreprocessor
 from app.services.live.session_buffer import BufferedSegment, LiveTextBuffer
 
@@ -23,9 +24,12 @@ class SessionContext:
     websocket: WebSocket
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     buffer: LiveTextBuffer = field(default_factory=LiveTextBuffer)
+    queue: asyncio.Queue[BufferedSegment] = field(default_factory=asyncio.Queue)
+    consumer_task: asyncio.Task[None] | None = None
     stream_session: LiveStreamSession | None = None
     audio_task: asyncio.Task[None] | None = None
     idle_task: asyncio.Task[None] | None = None
+    transport: str = 'segment'  # "segment" or "session"
 
 
 class LiveSessionManager:
@@ -42,47 +46,42 @@ class LiveSessionManager:
             await self.disconnect(session_id)
 
     async def connect(self, session_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
         ctx = SessionContext(session_id=session_id, websocket=websocket)
 
-        try:
-            ctx.stream_session = await self.live_engine.open_session()
+        if hasattr(self.live_engine, 'open_session'):
+            ctx.transport = 'session'
+            stream_session = await self.live_engine.open_session()  # type: ignore[attr-defined]
+            ctx.stream_session = stream_session
             ctx.audio_task = asyncio.create_task(self._audio_loop(ctx), name=f'live-audio-{session_id}')
-            self.sessions[session_id] = ctx
+        else:
+            ctx.transport = 'segment'
+            ctx.consumer_task = asyncio.create_task(self._consumer_loop(ctx), name=f'live-consumer-{session_id}')
 
-            await self._send_json(
-                ctx,
-                {
-                    'type': 'session.ready',
-                    'session_id': session_id,
-                    'mode': 'live',
-                    'streaming': True,
-                },
-            )
-            await self._send_buffer_state(ctx)
-        except Exception:
-            if ctx.audio_task is not None:
-                ctx.audio_task.cancel()
-                try:
-                    await ctx.audio_task
-                except asyncio.CancelledError:
-                    pass
-            if ctx.stream_session is not None:
-                try:
-                    await ctx.stream_session.close()
-                except Exception:
-                    logger.exception('Failed to close stream session after connect failure')
-            raise
+        self.sessions[session_id] = ctx
+
+        await self._send_json(
+            ctx,
+            {
+                'type': 'session.ready',
+                'session_id': session_id,
+                'mode': 'live',
+                'transport': ctx.transport,
+                'streaming': True,
+            },
+        )
+        await self._send_buffer_state(ctx)
 
     async def disconnect(self, session_id: str) -> None:
         ctx = self.sessions.pop(session_id, None)
         if ctx is None:
             return
 
-        for task in [ctx.idle_task, ctx.audio_task]:
+        for task in [ctx.idle_task, ctx.audio_task, ctx.consumer_task]:
             if task is not None:
                 task.cancel()
 
-        for task in [ctx.idle_task, ctx.audio_task]:
+        for task in [ctx.idle_task, ctx.audio_task, ctx.consumer_task]:
             if task is not None:
                 try:
                     await task
@@ -93,7 +92,7 @@ class LiveSessionManager:
             try:
                 await ctx.stream_session.close()
             except Exception:
-                logger.exception('Failed to close live stream session session=%s', session_id)
+                logger.exception('Failed to close realtime stream session session=%s', session_id)
 
     async def append_text(
         self,
@@ -118,15 +117,20 @@ class LiveSessionManager:
         )
 
         if segments:
-            await self._stream_segments(ctx, segments)
+            if ctx.transport == 'session':
+                await self._stream_segments(ctx, segments)
+            else:
+                await self._enqueue_segments(ctx, segments)
 
         await self._send_buffer_state(ctx)
 
         if flush:
             await self._cancel_idle_task(ctx)
-            if ctx.stream_session is not None:
+
+            if ctx.transport == 'session' and ctx.stream_session is not None:
                 await ctx.stream_session.flush()
-                await self._send_json(ctx, {'type': 'buffer.flushed', 'reason': 'explicit'})
+
+            await self._send_json(ctx, {'type': 'buffer.flushed', 'reason': 'explicit'})
         else:
             self._restart_idle_task(ctx)
 
@@ -136,9 +140,12 @@ class LiveSessionManager:
 
         segments = ctx.buffer.flush()
         if segments:
-            await self._stream_segments(ctx, segments)
+            if ctx.transport == 'session':
+                await self._stream_segments(ctx, segments)
+            else:
+                await self._enqueue_segments(ctx, segments)
 
-        if ctx.stream_session is not None:
+        if ctx.transport == 'session' and ctx.stream_session is not None:
             await ctx.stream_session.flush()
 
         await self._send_json(ctx, {'type': 'buffer.flushed'})
@@ -149,8 +156,12 @@ class LiveSessionManager:
         await self._cancel_idle_task(ctx)
 
         ctx.buffer.clear()
-        if ctx.stream_session is not None:
-            await ctx.stream_session.clear()
+
+        if ctx.transport == 'session':
+            if ctx.stream_session is not None:
+                await ctx.stream_session.clear()
+        else:
+            await self._reset_segment_transport(ctx)
 
         await self._send_json(ctx, {'type': 'buffer.cleared'})
         await self._send_buffer_state(ctx)
@@ -185,7 +196,7 @@ class LiveSessionManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.exception('Live audio loop failed session=%s', ctx.session_id)
+            logger.exception('Realtime audio loop failed session=%s', ctx.session_id)
             await self._send_json(
                 ctx,
                 {
@@ -194,9 +205,78 @@ class LiveSessionManager:
                 },
             )
 
+    async def _consumer_loop(self, ctx: SessionContext) -> None:
+        while True:
+            segment = await ctx.queue.get()
+            started_at = time.perf_counter()
+            first_audio_sent = False
+
+            try:
+                with SessionLocal() as db:
+                    processed_text = self.preprocessor.process(
+                        db=db,
+                        text=segment.text,
+                        dictionary_id=segment.dictionary_id,
+                    )
+
+                await self._send_json(
+                    ctx,
+                    {
+                        'type': 'segment.started',
+                        'segment_id': segment.segment_id,
+                        'raw_text': segment.text,
+                        'processed_text': processed_text,
+                    },
+                )
+
+                async for audio in self.live_engine.synthesize_segment(
+                    LiveSynthesisRequest(
+                        text=processed_text,
+                        voice_id=segment.voice_id,
+                        lora_name=segment.lora_name,
+                        language=segment.language,
+                    )
+                ):
+                    if not first_audio_sent:
+                        first_audio_sent = True
+                        await self._send_json(
+                            ctx,
+                            {
+                                'type': 'metrics.first_audio',
+                                'segment_id': segment.segment_id,
+                                'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                            },
+                        )
+
+                    await self._send_audio_chunk(ctx, audio, segment_id=segment.segment_id)
+
+                await self._send_json(
+                    ctx,
+                    {
+                        'type': 'segment.done',
+                        'segment_id': segment.segment_id,
+                        'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                    },
+                )
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception('Live segment synthesis failed session=%s', ctx.session_id)
+                await self._send_json(
+                    ctx,
+                    {
+                        'type': 'job.error',
+                        'segment_id': segment.segment_id,
+                        'error': str(exc),
+                    },
+                )
+            finally:
+                ctx.queue.task_done()
+
     async def _stream_segments(self, ctx: SessionContext, segments: list[BufferedSegment]) -> None:
         if ctx.stream_session is None:
-            raise RuntimeError('Live stream session is not initialized')
+            raise RuntimeError('Realtime stream session is not initialized')
 
         for segment in segments:
             with SessionLocal() as db:
@@ -225,10 +305,47 @@ class LiveSessionManager:
                 },
             )
 
+    async def _enqueue_segments(self, ctx: SessionContext, segments: list[BufferedSegment]) -> None:
+        for segment in segments:
+            await ctx.queue.put(segment)
+            await self._send_json(
+                ctx,
+                {
+                    'type': 'segment.accepted',
+                    'segment_id': segment.segment_id,
+                    'text': segment.text,
+                    'queue_size': ctx.queue.qsize(),
+                },
+            )
+
+    async def _reset_segment_transport(self, ctx: SessionContext) -> None:
+        while not ctx.queue.empty():
+            try:
+                ctx.queue.get_nowait()
+                ctx.queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+        if ctx.consumer_task is not None:
+            ctx.consumer_task.cancel()
+            try:
+                await ctx.consumer_task
+            except asyncio.CancelledError:
+                pass
+
+        ctx.queue = asyncio.Queue()
+        ctx.consumer_task = asyncio.create_task(
+            self._consumer_loop(ctx),
+            name=f'live-consumer-{ctx.session_id}',
+        )
+
     def _restart_idle_task(self, ctx: SessionContext) -> None:
         if ctx.idle_task:
             ctx.idle_task.cancel()
-        ctx.idle_task = asyncio.create_task(self._idle_flush_later(ctx.session_id), name=f'idle-flush-{ctx.session_id}')
+        ctx.idle_task = asyncio.create_task(
+            self._idle_flush_later(ctx.session_id),
+            name=f'idle-flush-{ctx.session_id}',
+        )
 
     async def _cancel_idle_task(self, ctx: SessionContext) -> None:
         if ctx.idle_task is None:
@@ -256,9 +373,12 @@ class LiveSessionManager:
 
         segments = ctx.buffer.flush()
         if segments:
-            await self._stream_segments(ctx, segments)
+            if ctx.transport == 'session':
+                await self._stream_segments(ctx, segments)
+            else:
+                await self._enqueue_segments(ctx, segments)
 
-        if ctx.stream_session is not None:
+        if ctx.transport == 'session' and ctx.stream_session is not None:
             await ctx.stream_session.flush()
 
         await self._send_json(ctx, {'type': 'buffer.flushed', 'reason': 'idle'})
@@ -274,12 +394,12 @@ class LiveSessionManager:
             },
         )
 
-    async def _send_audio_chunk(self, ctx: SessionContext, audio: LiveAudioChunk) -> None:
+    async def _send_audio_chunk(self, ctx: SessionContext, audio, segment_id: str = 'realtime') -> None:
         await self._send_json(
             ctx,
             {
                 'type': 'audio.chunk',
-                'segment_id': 'realtime',
+                'segment_id': segment_id,
                 'seq_no': audio.seq_no,
                 'text': audio.text,
                 'audio_b64': base64.b64encode(audio.pcm_bytes).decode('ascii'),

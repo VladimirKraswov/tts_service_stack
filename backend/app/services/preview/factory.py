@@ -12,8 +12,13 @@ def get_preview_engine() -> PreviewEngine:
         return _engine
 
     settings = get_settings()
-    if settings.tts_backend in {'qwen', 'qwen_realtime'}:
+    backend = settings.resolved_preview_backend
+
+    if backend == 'qwen':
         _engine = QwenPreviewEngine()
-    else:
+    elif backend == 'mock':
         _engine = MockPreviewEngine()
+    else:
+        raise ValueError(f'Unsupported preview backend: {backend}')
+
     return _engine
