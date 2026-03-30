@@ -1,20 +1,64 @@
 === CODE BUNDLE ===
 root: /Volumes/Extend/work/tts_service_stack
 ignore: .codebundleignore
-generated: 2026-03-30T16:02:49.620Z
+generated: 2026-03-30T21:22:55.939Z
 
 
 
 path: /.env
 ----------------------------------------
-TTS_BACKEND=qwen_realtime
+POSTGRES_DB=tts_admin
+POSTGRES_USER=tts_admin
+POSTGRES_PASSWORD=tts_admin_change_me
+DATABASE_URL=postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin
+REDIS_URL=redis://redis:6379/0
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_TITLE=TTS Admin Stack
+API_PREFIX=/api/v1
+DATA_DIR=/data
+FRONTEND_ORIGIN=http://localhost:8080
+
+# Legacy fallback
+TTS_BACKEND=qwen
+
+# Explicit backend split
+PREVIEW_BACKEND=qwen
+LIVE_BACKEND=cosyvoice2
+
+# Qwen preview
 QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
-QWEN_ATTN_IMPLEMENTATION=flash_attention_2
+QWEN_DEVICE=cuda:0
 QWEN_DTYPE=bfloat16
+QWEN_ATTN_IMPLEMENTATION=sdpa
 QWEN_COMPILE=false
 QWEN_MAX_CONCURRENT=2
 QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
-QWEN_DEVICE=cuda:0
+
+# Optional legacy cloud realtime Qwen
+QWEN_REALTIME_WS_URL=
+QWEN_REALTIME_API_KEY=
+QWEN_REALTIME_MODEL=qwen3-tts-flash-realtime
+QWEN_REALTIME_MODE=commit
+QWEN_REALTIME_SAMPLE_RATE=24000
+QWEN_REALTIME_FORMAT=pcm
+
+# CosyVoice2 local live
+COSYVOICE_ROOT=/opt/cosyvoice
+COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B
+COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts
+COSYVOICE_DEFAULT_PROMPT_WAV=/data/cosyvoice_prompts/default.wav
+COSYVOICE_DEFAULT_PROMPT_TEXT=Привет. Это опорная запись для локального live-режима CosyVoice2.
+COSYVOICE_STREAM=true
+COSYVOICE_TEXT_FRONTEND=true
+COSYVOICE_SPEED=1.0
+COSYVOICE_FP16=true
+COSYVOICE_LOAD_JIT=false
+COSYVOICE_LOAD_TRT=false
+COSYVOICE_LOAD_VLLM=false
+
+AUDIO_SAMPLE_RATE=24000
+TRAINING_POLL_SECONDS=5
 
 LIVE_BUFFER_IDLE_MS=120
 LIVE_BUFFER_SOFT_FLUSH_CHARS=24
@@ -172,6 +216,60 @@ path: /.vscode copy/c_cpp_properties.json
   ],
   "version": 4
 }
+
+
+path: /backend/.env
+----------------------------------------
+POSTGRES_DB=tts_admin
+POSTGRES_USER=tts_admin
+POSTGRES_PASSWORD=tts_admin_change_me
+DATABASE_URL=postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin
+REDIS_URL=redis://redis:6379/0
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_TITLE=TTS Admin Stack
+API_PREFIX=/api/v1
+DATA_DIR=/data
+FRONTEND_ORIGIN=http://localhost:8080
+
+# backward compatibility
+TTS_BACKEND=qwen
+
+# split backends
+PREVIEW_BACKEND=qwen
+LIVE_BACKEND=cosyvoice2
+
+# Qwen preview
+QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+QWEN_DEVICE=cuda:0
+QWEN_DTYPE=bfloat16
+QWEN_ATTN_IMPLEMENTATION=sdpa
+QWEN_COMPILE=false
+QWEN_MAX_CONCURRENT=2
+QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
+
+# CosyVoice2 live
+COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B
+COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts
+COSYVOICE_DEFAULT_PROMPT_NAME=default
+COSYVOICE_STREAM=true
+COSYVOICE_TEXT_FRONTEND=true
+COSYVOICE_SPEED=1.0
+COSYVOICE_FP16=true
+COSYVOICE_LOAD_JIT=false
+COSYVOICE_LOAD_TRT=false
+COSYVOICE_LOAD_VLLM=false
+COSYVOICE_MAX_CONCURRENT=1
+
+AUDIO_SAMPLE_RATE=24000
+TRAINING_POLL_SECONDS=5
+
+LIVE_BUFFER_IDLE_MS=120
+LIVE_BUFFER_SOFT_FLUSH_CHARS=24
+LIVE_BUFFER_TARGET_CHARS=36
+LIVE_BUFFER_MAX_CHARS=56
+LIVE_PCM_CHUNK_MS=40
+LIVE_DICTIONARY_CACHE_TTL_SECONDS=10
 
 
 path: /backend/.env.test
@@ -434,10 +532,16 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
         await manager.connect(session_id, websocket)
     except Exception as exc:
         try:
-            await websocket.send_json({
-                'type': 'job.error',
-                'error': f'Live session init failed: {exc}',
-            })
+            await websocket.accept()
+        except Exception:
+            pass
+        try:
+            await websocket.send_json(
+                {
+                    'type': 'job.error',
+                    'error': f'Live session init failed: {exc}',
+                }
+            )
         except Exception:
             pass
         try:
@@ -620,8 +724,14 @@ class Settings(BaseSettings):
     redis_url: str = Field(default='redis://redis:6379/0', alias='REDIS_URL')
     data_dir: Path = Field(default=Path('/data'), alias='DATA_DIR')
 
+    # backward compatibility
     tts_backend: str = Field(default='mock', alias='TTS_BACKEND')
 
+    # explicit split backends
+    preview_backend: str | None = Field(default=None, alias='PREVIEW_BACKEND')
+    live_backend: str | None = Field(default=None, alias='LIVE_BACKEND')
+
+    # Qwen preview
     qwen_model_name: str = Field(default='Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice', alias='QWEN_MODEL_NAME')
     qwen_device: str = Field(default='cuda:0', alias='QWEN_DEVICE')
     qwen_dtype: str = Field(default='bfloat16', alias='QWEN_DTYPE')
@@ -633,12 +743,18 @@ class Settings(BaseSettings):
         alias='QWEN_PREVIEW_STYLE',
     )
 
-    qwen_realtime_ws_url: str | None = Field(default=None, alias='QWEN_REALTIME_WS_URL')
-    qwen_realtime_api_key: str | None = Field(default=None, alias='QWEN_REALTIME_API_KEY')
-    qwen_realtime_model: str = Field(default='qwen3-tts-flash-realtime', alias='QWEN_REALTIME_MODEL')
-    qwen_realtime_mode: str = Field(default='commit', alias='QWEN_REALTIME_MODE')
-    qwen_realtime_sample_rate: int = Field(default=24000, alias='QWEN_REALTIME_SAMPLE_RATE')
-    qwen_realtime_format: str = Field(default='pcm', alias='QWEN_REALTIME_FORMAT')
+    # CosyVoice2 live
+    cosyvoice_model_dir: Path = Field(default=Path('/data/models/CosyVoice2-0.5B'), alias='COSYVOICE_MODEL_DIR')
+    cosyvoice_prompt_dir: Path = Field(default=Path('/data/cosyvoice_prompts'), alias='COSYVOICE_PROMPT_DIR')
+    cosyvoice_default_prompt_name: str = Field(default='default', alias='COSYVOICE_DEFAULT_PROMPT_NAME')
+    cosyvoice_stream: bool = Field(default=True, alias='COSYVOICE_STREAM')
+    cosyvoice_text_frontend: bool = Field(default=True, alias='COSYVOICE_TEXT_FRONTEND')
+    cosyvoice_speed: float = Field(default=1.0, alias='COSYVOICE_SPEED')
+    cosyvoice_fp16: bool = Field(default=True, alias='COSYVOICE_FP16')
+    cosyvoice_load_jit: bool = Field(default=False, alias='COSYVOICE_LOAD_JIT')
+    cosyvoice_load_trt: bool = Field(default=False, alias='COSYVOICE_LOAD_TRT')
+    cosyvoice_load_vllm: bool = Field(default=False, alias='COSYVOICE_LOAD_VLLM')
+    cosyvoice_max_concurrent: int = Field(default=1, alias='COSYVOICE_MAX_CONCURRENT')
 
     audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
@@ -649,6 +765,14 @@ class Settings(BaseSettings):
     live_buffer_max_chars: int = Field(default=56, alias='LIVE_BUFFER_MAX_CHARS')
     live_pcm_chunk_ms: int = Field(default=40, alias='LIVE_PCM_CHUNK_MS')
     live_dictionary_cache_ttl_seconds: int = Field(default=10, alias='LIVE_DICTIONARY_CACHE_TTL_SECONDS')
+
+    @property
+    def effective_preview_backend(self) -> str:
+        return (self.preview_backend or self.tts_backend).strip().lower()
+
+    @property
+    def effective_live_backend(self) -> str:
+        return (self.live_backend or self.tts_backend).strip().lower()
 
     @property
     def upload_dir(self) -> Path:
@@ -675,6 +799,7 @@ def get_settings() -> Settings:
     settings.datasets_dir.mkdir(parents=True, exist_ok=True)
     settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
     settings.models_dir.mkdir(parents=True, exist_ok=True)
+    settings.cosyvoice_prompt_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
 
@@ -701,22 +826,42 @@ from app.models.dictionary import Dictionary, DictionaryEntry
 from app.models.voice import VoiceProfile
 
 
-def _ensure_voice(session, name: str, display_name: str, backend: str, model_name: str, description: str, kind: str = 'voice') -> None:
-    if not session.scalar(select(VoiceProfile).where(VoiceProfile.name == name)):
-        session.add(VoiceProfile(
-            name=name,
-            display_name=display_name,
-            backend=backend,
-            model_name=model_name,
-            description=description,
-            is_enabled=True,
-            kind=kind,
-        ))
+def _ensure_voice(
+    session,
+    name: str,
+    display_name: str,
+    backend: str,
+    model_name: str,
+    description: str,
+    kind: str = 'voice',
+) -> None:
+    existing = session.scalar(select(VoiceProfile).where(VoiceProfile.name == name))
+    if existing is None:
+        session.add(
+            VoiceProfile(
+                name=name,
+                display_name=display_name,
+                backend=backend,
+                model_name=model_name,
+                description=description,
+                is_enabled=True,
+                kind=kind,
+            )
+        )
+        return
+
+    existing.display_name = display_name
+    existing.backend = backend
+    existing.model_name = model_name
+    existing.description = description
+    existing.is_enabled = True
+    existing.kind = kind
 
 
 def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
+
     with SessionLocal() as session:
         default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
         if default_dictionary is None:
@@ -739,9 +884,16 @@ def init_db() -> None:
                 ('__init__', 'андерскор андерскор инит андерскор андерскор', 'Python magic method'),
             ]
             for source, spoken, note in entries:
-                session.add(DictionaryEntry(dictionary_id=default_dictionary.id, source_text=source, spoken_text=spoken, note=note))
+                session.add(
+                    DictionaryEntry(
+                        dictionary_id=default_dictionary.id,
+                        source_text=source,
+                        spoken_text=spoken,
+                        note=note,
+                    )
+                )
 
-        if settings.tts_backend in {'qwen', 'qwen_realtime'}:
+        if settings.effective_preview_backend == 'qwen':
             qwen_model = settings.qwen_model_name
             qwen_voices = [
                 ('qwen-vivian', 'Qwen Vivian', 'Vivian', 'Яркий молодой женский голос.'),
@@ -758,13 +910,45 @@ def init_db() -> None:
             ]
             for name, display_name, speaker, description in qwen_voices:
                 _ensure_voice(session, name, display_name, 'qwen', qwen_model, f'{description} Speaker={speaker}')
-            _ensure_voice(session, 'tech-lora-v1', 'Tech Style v1', 'qwen', qwen_model, 'Стиль тех-диктора через instruction prompt.', kind='lora')
-            _ensure_voice(session, 'calm-lora-v1', 'Calm Style v1', 'qwen', qwen_model, 'Спокойный стиль через instruction prompt.', kind='lora')
-            _ensure_voice(session, 'energetic-lora-v1', 'Energetic Style v1', 'qwen', qwen_model, 'Энергичный стиль через instruction prompt.', kind='lora')
+            _ensure_voice(
+                session,
+                'tech-lora-v1',
+                'Tech Style v1',
+                'qwen',
+                qwen_model,
+                'Стиль тех-диктора через instruction prompt.',
+                kind='lora',
+            )
+            _ensure_voice(
+                session,
+                'calm-lora-v1',
+                'Calm Style v1',
+                'qwen',
+                qwen_model,
+                'Спокойный стиль через instruction prompt.',
+                kind='lora',
+            )
+            _ensure_voice(
+                session,
+                'energetic-lora-v1',
+                'Energetic Style v1',
+                'qwen',
+                qwen_model,
+                'Энергичный стиль через instruction prompt.',
+                kind='lora',
+            )
         else:
             _ensure_voice(session, 'system-neutral', 'System Neutral', 'mock', 'mock://neutral', 'Базовый нейтральный голос')
             _ensure_voice(session, 'system-warm', 'System Warm', 'mock', 'mock://warm', 'Теплый голос для тестов')
-            _ensure_voice(session, 'tech-lora-v1', 'Tech LoRA v1', 'mock', 'mock://tech-lora-v1', 'LoRA для техтекста', kind='lora')
+            _ensure_voice(
+                session,
+                'tech-lora-v1',
+                'Tech LoRA v1',
+                'mock',
+                'mock://tech-lora-v1',
+                'LoRA для техтекста',
+                kind='lora',
+            )
 
         session.commit()
 
@@ -811,6 +995,11 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 
+def _should_init_db() -> bool:
+    raw = os.getenv('INIT_DB', 'true').strip().lower()
+    return raw in {'1', 'true', 'yes', 'on'}
+
+
 async def _safe_warmup(app: FastAPI) -> None:
     try:
         logger.info('Background warmup: preview engine...')
@@ -829,7 +1018,7 @@ async def _safe_warmup(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not os.getenv("TESTING"):
+    if not os.getenv('TESTING') and _should_init_db():
         init_db()
 
     preview_engine = get_preview_engine()
@@ -846,7 +1035,6 @@ async def lifespan(app: FastAPI):
     app.state.warmup_task = None
 
     try:
-        # ВАЖНО: не блокируем запуск API прогревом модели
         app.state.warmup_task = asyncio.create_task(_safe_warmup(app), name='tts-background-warmup')
         yield
     finally:
@@ -1170,32 +1358,6 @@ class LiveAudioChunk:
     is_last: bool = False
 
 
-class LiveStreamSession(ABC):
-    @abstractmethod
-    async def start(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def send_text(self, text: str, request: LiveSynthesisRequest) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def flush(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def clear(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def audio_chunks(self) -> AsyncIterator[LiveAudioChunk]:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def close(self) -> None:
-        raise NotImplementedError
-
-
 class LiveEngine(ABC):
     @abstractmethod
     async def warmup(self) -> None:
@@ -1206,13 +1368,264 @@ class LiveEngine(ABC):
         raise NotImplementedError
 
 
+path: /backend/app/services/live/cosyvoice_runtime.py
+----------------------------------------
+from __future__ import annotations
+
+import asyncio
+import logging
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from typing import AsyncIterator
+
+import numpy as np
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class PromptProfile:
+    name: str
+    wav_path: Path
+    prompt_text: str
+
+
+class CosyVoiceRuntime:
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self._model = None
+        self._sample_rate = self.settings.audio_sample_rate
+        self._lock = asyncio.Lock()
+        self._semaphore = asyncio.Semaphore(max(1, self.settings.cosyvoice_max_concurrent))
+
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+
+    async def warmup(self) -> None:
+        await self._ensure_model()
+
+    async def stream_zero_shot(
+        self,
+        *,
+        text: str,
+        voice_id: str | None = None,
+    ) -> AsyncIterator[tuple[bytes, int]]:
+        await self._ensure_model()
+        profile = self._resolve_prompt_profile(voice_id)
+
+        async with self._semaphore:
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[object] = asyncio.Queue()
+            done = object()
+
+            def worker() -> None:
+                try:
+                    assert self._model is not None
+                    for item in self._model.inference_zero_shot(
+                        text,
+                        profile.prompt_text,
+                        str(profile.wav_path),
+                        stream=self.settings.cosyvoice_stream,
+                        speed=self.settings.cosyvoice_speed,
+                        text_frontend=self.settings.cosyvoice_text_frontend,
+                    ):
+                        pcm_bytes = self._speech_to_pcm16le(item['tts_speech'])
+                        loop.call_soon_threadsafe(queue.put_nowait, pcm_bytes)
+                except Exception as exc:  # pragma: no cover
+                    logger.exception('CosyVoice stream worker failed')
+                    loop.call_soon_threadsafe(queue.put_nowait, exc)
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, done)
+
+            threading.Thread(
+                target=worker,
+                daemon=True,
+                name='cosyvoice2-stream-worker',
+            ).start()
+
+            seq_count = 0
+            while True:
+                item = await queue.get()
+                if item is done:
+                    break
+                if isinstance(item, Exception):
+                    raise RuntimeError(f'CosyVoice inference failed: {item}') from item
+                if not isinstance(item, (bytes, bytearray)):
+                    raise RuntimeError(f'Unexpected CosyVoice stream payload type: {type(item)}')
+
+                seq_count += 1
+                yield bytes(item), self._sample_rate
+
+    async def _ensure_model(self) -> None:
+        if self._model is not None:
+            return
+
+        async with self._lock:
+            if self._model is not None:
+                return
+
+            try:
+                from cosyvoice.cli.cosyvoice import AutoModel
+            except Exception as exc:  # pragma: no cover
+                raise RuntimeError(
+                    'Failed to import CosyVoice. Check Docker image and PYTHONPATH.'
+                ) from exc
+
+            logger.info(
+                'Loading CosyVoice model model_dir=%s fp16=%s load_jit=%s load_trt=%s load_vllm=%s',
+                self.settings.cosyvoice_model_dir,
+                self.settings.cosyvoice_fp16,
+                self.settings.cosyvoice_load_jit,
+                self.settings.cosyvoice_load_trt,
+                self.settings.cosyvoice_load_vllm,
+            )
+
+            self._model = AutoModel(
+                model_dir=str(self.settings.cosyvoice_model_dir),
+                load_jit=self.settings.cosyvoice_load_jit,
+                load_trt=self.settings.cosyvoice_load_trt,
+                load_vllm=self.settings.cosyvoice_load_vllm,
+                fp16=self.settings.cosyvoice_fp16,
+            )
+            self._sample_rate = int(getattr(self._model, 'sample_rate', self.settings.audio_sample_rate))
+
+            logger.info('CosyVoice model loaded sample_rate=%s', self._sample_rate)
+
+    def _resolve_prompt_profile(self, requested_name: str | None) -> PromptProfile:
+        candidates: list[str] = []
+        if requested_name:
+            candidates.append(requested_name)
+        default_name = self.settings.cosyvoice_default_prompt_name.strip()
+        if default_name and default_name not in candidates:
+            candidates.append(default_name)
+
+        for name in candidates:
+            profile = self._load_profile(name)
+            if profile is not None:
+                return profile
+
+        raise RuntimeError(
+            'CosyVoice prompt profile not found. '
+            f'Create {self.settings.cosyvoice_prompt_dir / "default.wav"} and '
+            f'{self.settings.cosyvoice_prompt_dir / "default.txt"} '
+            'or pass a matching voice_id profile name.'
+        )
+
+    def _load_profile(self, name: str) -> PromptProfile | None:
+        prompt_dir = self.settings.cosyvoice_prompt_dir
+
+        direct_wav = prompt_dir / f'{name}.wav'
+        direct_txt = prompt_dir / f'{name}.txt'
+        if direct_wav.exists() and direct_txt.exists():
+            return PromptProfile(
+                name=name,
+                wav_path=direct_wav,
+                prompt_text=direct_txt.read_text(encoding='utf-8').strip(),
+            )
+
+        nested_dir = prompt_dir / name
+        nested_wav = nested_dir / 'prompt.wav'
+        nested_txt = nested_dir / 'prompt.txt'
+        if nested_wav.exists() and nested_txt.exists():
+            return PromptProfile(
+                name=name,
+                wav_path=nested_wav,
+                prompt_text=nested_txt.read_text(encoding='utf-8').strip(),
+            )
+
+        return None
+
+    def _speech_to_pcm16le(self, speech) -> bytes:
+        if hasattr(speech, 'detach'):
+            array = speech.detach().cpu().float().numpy()
+        else:
+            array = np.asarray(speech, dtype=np.float32)
+
+        array = np.asarray(array, dtype=np.float32)
+        array = np.squeeze(array)
+
+        if array.ndim == 0:
+            array = array.reshape(1)
+        elif array.ndim > 1:
+            array = array.reshape(-1)
+
+        array = np.clip(array, -1.0, 1.0)
+        pcm16 = (array * 32767.0).astype('<i2')
+        return pcm16.tobytes()
+
+
+_runtime: CosyVoiceRuntime | None = None
+
+
+def get_cosyvoice_runtime() -> CosyVoiceRuntime:
+    global _runtime
+    if _runtime is None:
+        _runtime = CosyVoiceRuntime()
+    return _runtime
+
+
+path: /backend/app/services/live/cosyvoice2.py
+----------------------------------------
+from __future__ import annotations
+
+from typing import AsyncIterator
+
+from app.services.cosyvoice_runtime import get_cosyvoice_runtime
+from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
+
+
+class CosyVoice2LiveEngine(LiveEngine):
+    def __init__(self) -> None:
+        self.runtime = get_cosyvoice_runtime()
+
+    async def warmup(self) -> None:
+        await self.runtime.warmup()
+
+    async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
+        seq_no = 0
+        last_chunk: bytes | None = None
+        sample_rate = self.runtime.sample_rate
+
+        async for pcm_bytes, sr in self.runtime.stream_zero_shot(
+            text=request.text,
+            voice_id=request.voice_id,
+        ):
+            sample_rate = sr
+            if last_chunk is None:
+                last_chunk = pcm_bytes
+                continue
+
+            yield LiveAudioChunk(
+                pcm_bytes=last_chunk,
+                seq_no=seq_no,
+                text=request.text,
+                sample_rate=sample_rate,
+                is_last=False,
+            )
+            seq_no += 1
+            last_chunk = pcm_bytes
+
+        if last_chunk is not None:
+            yield LiveAudioChunk(
+                pcm_bytes=last_chunk,
+                seq_no=seq_no,
+                text=request.text,
+                sample_rate=sample_rate,
+                is_last=True,
+            )
+
+
 path: /backend/app/services/live/factory.py
 ----------------------------------------
 from app.core.config import get_settings
 from app.services.live.base import LiveEngine
+from app.services.live.cosyvoice2 import CosyVoice2LiveEngine
 from app.services.live.mock import MockLiveEngine
 from app.services.live.qwen import QwenLiveEngine
-from app.services.live.qwen_realtime import QwenRealtimeLiveEngine
 
 _engine: LiveEngine | None = None
 
@@ -1223,9 +1636,11 @@ def get_live_engine() -> LiveEngine:
         return _engine
 
     settings = get_settings()
-    if settings.tts_backend == 'qwen_realtime':
-        _engine = QwenRealtimeLiveEngine()
-    elif settings.tts_backend == 'qwen':
+    backend = settings.effective_live_backend
+
+    if backend in {'cosyvoice2', 'cosyvoice'}:
+        _engine = CosyVoice2LiveEngine()
+    elif backend == 'qwen':
         _engine = QwenLiveEngine()
     else:
         _engine = MockLiveEngine()
@@ -1240,13 +1655,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import time
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveStreamSession, LiveSynthesisRequest
+from app.services.live.base import LiveEngine, LiveSynthesisRequest
 from app.services.live.preprocessor import LiveTextPreprocessor
 from app.services.live.session_buffer import BufferedSegment, LiveTextBuffer
 
@@ -1258,10 +1674,10 @@ settings = get_settings()
 class SessionContext:
     session_id: str
     websocket: WebSocket
+    queue: asyncio.Queue[BufferedSegment] = field(default_factory=asyncio.Queue)
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     buffer: LiveTextBuffer = field(default_factory=LiveTextBuffer)
-    stream_session: LiveStreamSession | None = None
-    audio_task: asyncio.Task[None] | None = None
+    consumer_task: asyncio.Task[None] | None = None
     idle_task: asyncio.Task[None] | None = None
 
 
@@ -1282,14 +1698,7 @@ class LiveSessionManager:
         await websocket.accept()
 
         ctx = SessionContext(session_id=session_id, websocket=websocket)
-
-        if not hasattr(self.live_engine, 'open_session'):
-            raise RuntimeError('Configured live engine does not support realtime streaming sessions')
-
-        stream_session = await self.live_engine.open_session()  # type: ignore[attr-defined]
-        ctx.stream_session = stream_session
-        ctx.audio_task = asyncio.create_task(self._audio_loop(ctx), name=f'live-audio-{session_id}')
-
+        ctx.consumer_task = asyncio.create_task(self._consumer_loop(ctx), name=f'live-consumer-{session_id}')
         self.sessions[session_id] = ctx
 
         await self._send_json(
@@ -1298,7 +1707,6 @@ class LiveSessionManager:
                 'type': 'session.ready',
                 'session_id': session_id,
                 'mode': 'live',
-                'streaming': True,
             },
         )
         await self._send_buffer_state(ctx)
@@ -1308,22 +1716,16 @@ class LiveSessionManager:
         if ctx is None:
             return
 
-        for task in [ctx.idle_task, ctx.audio_task]:
+        for task in [ctx.idle_task, ctx.consumer_task]:
             if task is not None:
                 task.cancel()
 
-        for task in [ctx.idle_task, ctx.audio_task]:
+        for task in [ctx.idle_task, ctx.consumer_task]:
             if task is not None:
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
-
-        if ctx.stream_session is not None:
-            try:
-                await ctx.stream_session.close()
-            except Exception:
-                logger.exception('Failed to close realtime stream session session=%s', session_id)
 
     async def append_text(
         self,
@@ -1348,15 +1750,12 @@ class LiveSessionManager:
         )
 
         if segments:
-            await self._stream_segments(ctx, segments)
+            await self._enqueue_segments(ctx, segments)
 
         await self._send_buffer_state(ctx)
 
         if flush:
             await self._cancel_idle_task(ctx)
-            if ctx.stream_session is not None:
-                await ctx.stream_session.flush()
-                await self._send_json(ctx, {'type': 'buffer.flushed', 'reason': 'explicit'})
         else:
             self._restart_idle_task(ctx)
 
@@ -1366,10 +1765,7 @@ class LiveSessionManager:
 
         segments = ctx.buffer.flush()
         if segments:
-            await self._stream_segments(ctx, segments)
-
-        if ctx.stream_session is not None:
-            await ctx.stream_session.flush()
+            await self._enqueue_segments(ctx, segments)
 
         await self._send_json(ctx, {'type': 'buffer.flushed'})
         await self._send_buffer_state(ctx)
@@ -1377,10 +1773,14 @@ class LiveSessionManager:
     async def clear_buffer(self, session_id: str) -> None:
         ctx = self._get_ctx(session_id)
         await self._cancel_idle_task(ctx)
-
         ctx.buffer.clear()
-        if ctx.stream_session is not None:
-            await ctx.stream_session.clear()
+
+        while not ctx.queue.empty():
+            try:
+                ctx.queue.get_nowait()
+                ctx.queue.task_done()
+            except asyncio.QueueEmpty:
+                break
 
         await self._send_json(ctx, {'type': 'buffer.cleared'})
         await self._send_buffer_state(ctx)
@@ -1405,53 +1805,95 @@ class LiveSessionManager:
             flush=True,
         )
 
-    async def _audio_loop(self, ctx: SessionContext) -> None:
-        if ctx.stream_session is None:
-            return
+    async def _consumer_loop(self, ctx: SessionContext) -> None:
+        while True:
+            segment = await ctx.queue.get()
+            started_at = time.perf_counter()
+            first_audio_sent = False
 
-        try:
-            async for audio in ctx.stream_session.audio_chunks():
-                await self._send_audio_chunk(ctx, audio)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.exception('Realtime audio loop failed session=%s', ctx.session_id)
-            await self._send_json(
-                ctx,
-                {
-                    'type': 'job.error',
-                    'error': str(exc),
-                },
-            )
+            try:
+                with SessionLocal() as db:
+                    processed_text = self.preprocessor.process(
+                        db=db,
+                        text=segment.text,
+                        dictionary_id=segment.dictionary_id,
+                    )
 
-    async def _stream_segments(self, ctx: SessionContext, segments: list[BufferedSegment]) -> None:
-        if ctx.stream_session is None:
-            raise RuntimeError('Realtime stream session is not initialized')
-
-        for segment in segments:
-            with SessionLocal() as db:
-                processed_text = self.preprocessor.process(
-                    db=db,
-                    text=segment.text,
-                    dictionary_id=segment.dictionary_id,
+                await self._send_json(
+                    ctx,
+                    {
+                        'type': 'segment.started',
+                        'segment_id': segment.segment_id,
+                        'raw_text': segment.text,
+                        'processed_text': processed_text,
+                    },
                 )
 
-            request = LiveSynthesisRequest(
-                text=processed_text,
-                voice_id=segment.voice_id,
-                lora_name=segment.lora_name,
-                language=segment.language,
-            )
+                async for audio in self.live_engine.synthesize_segment(
+                    LiveSynthesisRequest(
+                        text=processed_text,
+                        voice_id=segment.voice_id,
+                        lora_name=segment.lora_name,
+                        language=segment.language,
+                    )
+                ):
+                    if not first_audio_sent:
+                        first_audio_sent = True
+                        await self._send_json(
+                            ctx,
+                            {
+                                'type': 'metrics.first_audio',
+                                'segment_id': segment.segment_id,
+                                'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                            },
+                        )
 
-            await ctx.stream_session.send_text(processed_text, request)
+                    await self._send_json(
+                        ctx,
+                        {
+                            'type': 'audio.chunk',
+                            'segment_id': segment.segment_id,
+                            'seq_no': audio.seq_no,
+                            'text': audio.text,
+                            'audio_b64': base64.b64encode(audio.pcm_bytes).decode('ascii'),
+                            'sample_rate': audio.sample_rate,
+                            'mime': audio.mime,
+                            'is_last': audio.is_last,
+                        },
+                    )
 
+                await self._send_json(
+                    ctx,
+                    {
+                        'type': 'segment.done',
+                        'segment_id': segment.segment_id,
+                        'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                    },
+                )
+
+            except Exception as exc:
+                logger.exception('Live segment synthesis failed session=%s', ctx.session_id)
+                await self._send_json(
+                    ctx,
+                    {
+                        'type': 'job.error',
+                        'segment_id': segment.segment_id,
+                        'error': str(exc),
+                    },
+                )
+            finally:
+                ctx.queue.task_done()
+
+    async def _enqueue_segments(self, ctx: SessionContext, segments: list[BufferedSegment]) -> None:
+        for segment in segments:
+            await ctx.queue.put(segment)
             await self._send_json(
                 ctx,
                 {
                     'type': 'segment.accepted',
                     'segment_id': segment.segment_id,
-                    'raw_text': segment.text,
-                    'processed_text': processed_text,
+                    'text': segment.text,
+                    'queue_size': ctx.queue.qsize(),
                 },
             )
 
@@ -1486,13 +1928,9 @@ class LiveSessionManager:
 
         segments = ctx.buffer.flush()
         if segments:
-            await self._stream_segments(ctx, segments)
-
-        if ctx.stream_session is not None:
-            await ctx.stream_session.flush()
-
-        await self._send_json(ctx, {'type': 'buffer.flushed', 'reason': 'idle'})
-        await self._send_buffer_state(ctx)
+            await self._enqueue_segments(ctx, segments)
+            await self._send_json(ctx, {'type': 'buffer.flushed', 'reason': 'idle'})
+            await self._send_buffer_state(ctx)
 
     async def _send_buffer_state(self, ctx: SessionContext) -> None:
         snapshot = ctx.buffer.snapshot()
@@ -1501,21 +1939,6 @@ class LiveSessionManager:
             {
                 'type': 'buffer.updated',
                 **snapshot,
-            },
-        )
-
-    async def _send_audio_chunk(self, ctx: SessionContext, audio: LiveAudioChunk) -> None:
-        await self._send_json(
-            ctx,
-            {
-                'type': 'audio.chunk',
-                'segment_id': 'realtime',
-                'seq_no': audio.seq_no,
-                'text': audio.text,
-                'audio_b64': base64.b64encode(audio.pcm_bytes).decode('ascii'),
-                'sample_rate': audio.sample_rate,
-                'mime': audio.mime,
-                'is_last': audio.is_last,
             },
         )
 
@@ -1540,7 +1963,13 @@ import struct
 from typing import AsyncIterator
 
 from app.core.config import get_settings
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
+from app.services.live.base import (
+    BufferedLiveStreamSession,
+    LiveAudioChunk,
+    LiveEngine,
+    LiveStreamSession,
+    LiveSynthesisRequest,
+)
 
 
 class MockLiveEngine(LiveEngine):
@@ -1553,6 +1982,12 @@ class MockLiveEngine(LiveEngine):
             return
         await asyncio.sleep(0.02)
         self._warm = True
+
+    async def open_session(self) -> LiveStreamSession:
+        await self.warmup()
+        session = BufferedLiveStreamSession(self.synthesize_segment)
+        await session.start()
+        return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
         await self.warmup()
@@ -1708,6 +2143,7 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import websockets
 
@@ -1767,16 +2203,24 @@ class _ErrorEvent:
     message: str
 
 
+@dataclass(slots=True)
+class _ClosedEvent:
+    pass
+
+
 class QwenRealtimeSession(LiveStreamSession):
     def __init__(self) -> None:
-        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._ws: Any | None = None
         self._recv_task: asyncio.Task[None] | None = None
-        self._events: asyncio.Queue[_AudioDeltaEvent | _AudioDoneEvent | _ErrorEvent] = asyncio.Queue()
+        self._events: asyncio.Queue[_AudioDeltaEvent | _AudioDoneEvent | _ErrorEvent | _ClosedEvent] = asyncio.Queue()
         self._send_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()
         self._closed = False
         self._current_signature: tuple[str, str, str, str] | None = None
-        self._response_index = 0
+
+        self._session_created = asyncio.Event()
+        self._session_updated = asyncio.Event()
+        self._session_finished = asyncio.Event()
 
     async def start(self) -> None:
         if self._ws is not None:
@@ -1787,8 +2231,13 @@ class QwenRealtimeSession(LiveStreamSession):
         if not settings.qwen_realtime_api_key:
             raise RuntimeError('QWEN_REALTIME_API_KEY is not configured')
 
+        url = self._build_ws_url(
+            base_url=settings.qwen_realtime_ws_url,
+            model=settings.qwen_realtime_model,
+        )
+
         self._ws = await websockets.connect(
-            settings.qwen_realtime_ws_url,
+            url,
             additional_headers={
                 'Authorization': f'Bearer {settings.qwen_realtime_api_key}',
             },
@@ -1797,6 +2246,8 @@ class QwenRealtimeSession(LiveStreamSession):
             ping_timeout=20,
         )
         self._recv_task = asyncio.create_task(self._recv_loop(), name='qwen-realtime-recv')
+
+        await asyncio.wait_for(self._session_created.wait(), timeout=10)
 
     async def send_text(self, text: str, request: LiveSynthesisRequest) -> None:
         if self._closed:
@@ -1834,22 +2285,14 @@ class QwenRealtimeSession(LiveStreamSession):
         })
 
     async def audio_chunks(self) -> AsyncIterator[LiveAudioChunk]:
-        buffered_pcm: bytes | None = None
         seq_no = 0
 
-        while not self._closed:
+        while True:
             event = await self._events.get()
 
-            if isinstance(event, _ErrorEvent):
-                raise RuntimeError(event.message)
-
             if isinstance(event, _AudioDeltaEvent):
-                if buffered_pcm is None:
-                    buffered_pcm = event.pcm_bytes
-                    continue
-
                 yield LiveAudioChunk(
-                    pcm_bytes=buffered_pcm,
+                    pcm_bytes=event.pcm_bytes,
                     seq_no=seq_no,
                     text='',
                     sample_rate=settings.qwen_realtime_sample_rate,
@@ -1857,21 +2300,26 @@ class QwenRealtimeSession(LiveStreamSession):
                     is_last=False,
                 )
                 seq_no += 1
-                buffered_pcm = event.pcm_bytes
                 continue
 
             if isinstance(event, _AudioDoneEvent):
-                if buffered_pcm is not None:
-                    yield LiveAudioChunk(
-                        pcm_bytes=buffered_pcm,
-                        seq_no=seq_no,
-                        text='',
-                        sample_rate=settings.qwen_realtime_sample_rate,
-                        mime='audio/l16',
-                        is_last=True,
-                    )
-                    seq_no = 0
-                    buffered_pcm = None
+                # frontend ignores empty audio_b64, but this marks boundary for consumers
+                yield LiveAudioChunk(
+                    pcm_bytes=b'',
+                    seq_no=seq_no,
+                    text='',
+                    sample_rate=settings.qwen_realtime_sample_rate,
+                    mime='audio/l16',
+                    is_last=True,
+                )
+                seq_no = 0
+                continue
+
+            if isinstance(event, _ErrorEvent):
+                raise RuntimeError(event.message)
+
+            if isinstance(event, _ClosedEvent):
+                return
 
     async def close(self) -> None:
         if self._closed:
@@ -1883,6 +2331,10 @@ class QwenRealtimeSession(LiveStreamSession):
             if self._ws is not None:
                 try:
                     await self._send_json({'type': 'session.finish'})
+                    try:
+                        await asyncio.wait_for(self._session_finished.wait(), timeout=3)
+                    except asyncio.TimeoutError:
+                        pass
                 except Exception:
                     pass
 
@@ -1897,11 +2349,17 @@ class QwenRealtimeSession(LiveStreamSession):
                     await self._recv_task
                 except asyncio.CancelledError:
                     pass
+            await self._events.put(_ClosedEvent())
 
     def _signature(self, request: LiveSynthesisRequest) -> tuple[str, str, str, str]:
         voice = VOICE_ALIASES.get(request.voice_id or '', request.voice_id or 'Ryan')
         language = LANGUAGE_ALIASES.get((request.language or 'ru').lower(), request.language or 'Russian')
-        instructions = STYLE_ALIASES.get(request.lora_name or '', '')
+
+        instructions = ''
+        model_name = (settings.qwen_realtime_model or '').lower()
+        if 'instruct' in model_name:
+            instructions = STYLE_ALIASES.get(request.lora_name or '', '')
+
         return (
             settings.qwen_realtime_model,
             voice,
@@ -1912,7 +2370,6 @@ class QwenRealtimeSession(LiveStreamSession):
     async def _update_session(self, request: LiveSynthesisRequest) -> None:
         voice = VOICE_ALIASES.get(request.voice_id or '', request.voice_id or 'Ryan')
         language = LANGUAGE_ALIASES.get((request.language or 'ru').lower(), request.language or 'Russian')
-        instructions = STYLE_ALIASES.get(request.lora_name or '', '')
 
         session_payload: dict[str, Any] = {
             'mode': settings.qwen_realtime_mode,
@@ -1922,22 +2379,34 @@ class QwenRealtimeSession(LiveStreamSession):
             'sample_rate': settings.qwen_realtime_sample_rate,
         }
 
-        # Для instruction control используйте instruct realtime model.
-        if instructions:
-            session_payload['instructions'] = instructions
-            session_payload['optimize_instructions'] = True
+        model_name = (settings.qwen_realtime_model or '').lower()
+        if 'instruct' in model_name:
+            instructions = STYLE_ALIASES.get(request.lora_name or '', '')
+            if instructions:
+                session_payload['instructions'] = instructions
+                session_payload['optimize_instructions'] = True
+        elif request.lora_name:
+            logger.info(
+                'Ignoring live style "%s" because realtime model "%s" does not support instruction control',
+                request.lora_name,
+                settings.qwen_realtime_model,
+            )
 
-        if settings.qwen_realtime_model:
-            session_payload['model'] = settings.qwen_realtime_model
-
+        self._session_updated.clear()
         await self._send_json({
             'type': 'session.update',
             'session': session_payload,
         })
+        await asyncio.wait_for(self._session_updated.wait(), timeout=10)
 
     async def _send_json(self, payload: dict[str, Any]) -> None:
         if self._ws is None:
             raise RuntimeError('Realtime websocket is not connected')
+
+        payload = {
+            **payload,
+            'event_id': payload.get('event_id') or f'event_{int(asyncio.get_running_loop().time() * 1000)}',
+        }
 
         async with self._send_lock:
             await self._ws.send(json.dumps(payload, ensure_ascii=False))
@@ -1948,47 +2417,64 @@ class QwenRealtimeSession(LiveStreamSession):
         try:
             async for raw in self._ws:
                 if isinstance(raw, bytes):
-                    # Для Qwen realtime ожидаем JSON-события с base64 delta.
+                    # The documented TTS realtime flow uses JSON events with base64 audio deltas.
                     continue
 
                 data = json.loads(raw)
                 event_type = data.get('type')
 
+                if event_type == 'session.created':
+                    self._session_created.set()
+                    logger.info('Qwen realtime session.created')
+                    continue
+
+                if event_type == 'session.updated':
+                    self._session_updated.set()
+                    logger.info('Qwen realtime session.updated')
+                    continue
+
+                if event_type == 'session.finished':
+                    self._session_finished.set()
+                    logger.info('Qwen realtime session.finished')
+                    continue
+
+                if event_type == 'input_text_buffer.committed':
+                    logger.debug('Qwen realtime input_text_buffer.committed')
+                    continue
+
+                if event_type == 'input_text_buffer.cleared':
+                    logger.debug('Qwen realtime input_text_buffer.cleared')
+                    continue
+
+                if event_type == 'response.created':
+                    logger.debug('Qwen realtime response.created')
+                    continue
+
+                if event_type == 'response.output_item.added':
+                    logger.debug('Qwen realtime response.output_item.added')
+                    continue
+
+                if event_type == 'response.content_part.added':
+                    logger.debug('Qwen realtime response.content_part.added')
+                    continue
+
                 if event_type == 'response.audio.delta':
                     delta_b64 = data.get('delta')
-                    if not isinstance(delta_b64, str):
-                        continue
-                    pcm = base64.b64decode(delta_b64)
-                    await self._events.put(_AudioDeltaEvent(pcm_bytes=pcm))
+                    if isinstance(delta_b64, str) and delta_b64:
+                        pcm = base64.b64decode(delta_b64)
+                        await self._events.put(_AudioDeltaEvent(pcm_bytes=pcm))
                     continue
 
                 if event_type == 'response.audio.done':
                     await self._events.put(_AudioDoneEvent())
                     continue
 
-                if event_type in {'error', 'response.error'}:
-                    await self._events.put(_ErrorEvent(message=json.dumps(data, ensure_ascii=False)))
-                    continue
-
-                if event_type == 'response.created':
-                    self._response_index += 1
-                    logger.info('Qwen realtime response.created #%s', self._response_index)
-                    continue
-
                 if event_type == 'response.done':
-                    logger.info('Qwen realtime response.done #%s', self._response_index)
+                    logger.debug('Qwen realtime response.done')
                     continue
 
-                if event_type == 'session.created':
-                    logger.info('Qwen realtime session.created')
-                    continue
-
-                if event_type == 'session.updated':
-                    logger.info('Qwen realtime session.updated')
-                    continue
-
-                if event_type == 'session.finished':
-                    logger.info('Qwen realtime session.finished')
+                if event_type in {'error', 'response.error'}:
+                    await self._events.put(_ErrorEvent(self._extract_error_message(data)))
                     continue
 
                 logger.debug('Qwen realtime event=%s payload=%s', event_type, data)
@@ -1997,20 +2483,47 @@ class QwenRealtimeSession(LiveStreamSession):
             raise
         except Exception as exc:
             logger.exception('Qwen realtime recv loop failed')
-            await self._events.put(_ErrorEvent(message=str(exc)))
+            await self._events.put(_ErrorEvent(str(exc)))
+
+    @staticmethod
+    def _extract_error_message(payload: dict[str, Any]) -> str:
+        error = payload.get('error')
+        if isinstance(error, dict):
+            message = error.get('message') or error.get('code')
+            if message:
+                return str(message)
+        if isinstance(error, str):
+            return error
+        return json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
+    def _build_ws_url(base_url: str, model: str | None) -> str:
+        parsed = urlparse(base_url)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+
+        if model:
+            query['model'] = [model]
+
+        return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
 class QwenRealtimeLiveEngine(LiveEngine):
     async def warmup(self) -> None:
+        # Cloud realtime backend has no local model warmup.
         return None
 
-    async def open_session(self) -> QwenRealtimeSession:
+    async def open_session(self) -> LiveStreamSession:
         session = QwenRealtimeSession()
         await session.start()
         return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
-        session = await self.open_session()
+        """
+        Compatibility path for single-request use.
+        The main application uses open_session() and keeps the session persistent.
+        """
+        session = QwenRealtimeSession()
+        await session.start()
         try:
             await session.send_text(request.text, request)
             await session.flush()
@@ -2029,7 +2542,13 @@ import wave
 from typing import AsyncIterator
 
 from app.core.config import get_settings
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
+from app.services.live.base import (
+    BufferedLiveStreamSession,
+    LiveAudioChunk,
+    LiveEngine,
+    LiveStreamSession,
+    LiveSynthesisRequest,
+)
 from app.services.qwen_runtime import QwenSynthesisRequest, get_qwen_runtime
 
 
@@ -2040,6 +2559,12 @@ class QwenLiveEngine(LiveEngine):
 
     async def warmup(self) -> None:
         await self.runtime.warmup()
+
+    async def open_session(self) -> LiveStreamSession:
+        await self.warmup()
+        session = BufferedLiveStreamSession(self.synthesize_segment)
+        await session.start()
+        return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
         wav_bytes, sample_rate = await self.runtime.generate_wav_bytes(
@@ -2413,6 +2938,8 @@ def get_meta() -> dict:
     return {
         'app_title': settings.app_title,
         'tts_backend': settings.tts_backend,
+        'preview_backend': settings.effective_preview_backend,
+        'live_backend': settings.effective_live_backend,
         'qwen_model_name': settings.qwen_model_name,
         'preview_engine_class': preview_engine.__class__.__name__,
         'live_engine_class': live_engine.__class__.__name__,
@@ -2605,16 +3132,20 @@ from app.services.preview.qwen import QwenPreviewEngine
 
 _engine: PreviewEngine | None = None
 
+
 def get_preview_engine() -> PreviewEngine:
     global _engine
     if _engine is not None:
         return _engine
 
     settings = get_settings()
-    if settings.tts_backend in {'qwen', 'qwen_realtime'}:
+    backend = settings.effective_preview_backend
+
+    if backend == 'qwen':
         _engine = QwenPreviewEngine()
     else:
         _engine = MockPreviewEngine()
+
     return _engine
 
 
@@ -3524,33 +4055,6 @@ if __name__ == "__main__":
     main()
 
 
-path: /backend/Dockerfile
-----------------------------------------
-FROM python:3.12-slim
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    ffmpeg \
-    git \
-    libsndfile1 \
-    sox \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt ./
-
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-      --index-url https://download.pytorch.org/whl/cu128 \
-      torch torchvision torchaudio && \
-    pip install --no-cache-dir -r requirements.txt
-
-COPY app ./app
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-
 path: /backend/Dockerfile.api
 ----------------------------------------
 FROM tts-ml-base:cu128-flash
@@ -3594,6 +4098,66 @@ RUN pip install --no-cache-dir \
       torch torchvision torchaudio && \
     MAX_JOBS=4 pip install --no-cache-dir -U flash-attn --no-build-isolation && \
     pip install --no-cache-dir -r /tmp/requirements.txt
+
+
+path: /backend/Dockerfile.base.cosyvoice
+----------------------------------------
+FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CUDA_HOME=/usr/local/cuda \
+    PATH=/usr/local/cuda/bin:${PATH} \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    COSYVOICE_ROOT=/opt/CosyVoice \
+    PYTHONPATH=/opt/CosyVoice:/opt/CosyVoice/third_party/Matcha-TTS
+
+WORKDIR /opt/cosyvoice-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    git \
+    ca-certificates \
+    ffmpeg \
+    sox \
+    libsox-dev \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/python3 /usr/bin/python && \
+    python -m pip install --upgrade "pip<25.1" "setuptools<82" wheel packaging
+
+RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOICE_ROOT} && \
+    cd ${COSYVOICE_ROOT} && \
+    git submodule update --init --recursive
+
+RUN python -m pip install \
+      --index-url https://download.pytorch.org/whl/cu121 \
+      torch==2.3.1 \
+      torchaudio==2.3.1
+
+RUN python -m pip install --no-build-isolation openai-whisper==20231117
+
+RUN grep -v '^openai-whisper==20231117$' ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
+    python -m pip install -r /tmp/cosyvoice-requirements.txt
+
+RUN python - <<'PY'
+import sys
+print("python:", sys.version)
+
+import torch
+print("torch:", torch.__version__)
+print("cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+
+import whisper
+print("whisper:", whisper.__file__)
+PY
 
 
 path: /backend/Dockerfile.base.flash
@@ -3661,6 +4225,31 @@ except Exception as e:
     print("flash_attn import error:", e)
     raise
 PY
+
+
+path: /backend/Dockerfile.live
+----------------------------------------
+FROM tts-cosyvoice-base:cu121
+
+WORKDIR /app
+
+COPY app ./app
+
+ENV PREVIEW_BACKEND=mock \
+    LIVE_BACKEND=cosyvoice2 \
+    COSYVOICE_ROOT=/opt/CosyVoice \
+    COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B \
+    COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts \
+    COSYVOICE_DEFAULT_PROMPT_NAME=default \
+    COSYVOICE_STREAM=true \
+    COSYVOICE_TEXT_FRONTEND=true \
+    COSYVOICE_SPEED=1.0 \
+    COSYVOICE_FP16=true \
+    COSYVOICE_LOAD_JIT=false \
+    COSYVOICE_LOAD_TRT=false \
+    COSYVOICE_LOAD_VLLM=false
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
 path: /backend/Dockerfile.trainer
@@ -3884,6 +4473,9 @@ services:
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
       HF_HOME: /data/huggingface
       HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+      INIT_DB: "true"
+      PREVIEW_BACKEND: qwen
+      LIVE_BACKEND: mock
     depends_on:
       postgres:
         condition: service_healthy
@@ -3893,6 +4485,43 @@ services:
       - ./data:/data
     ports:
       - "8000:8000"
+    gpus: all
+
+  live_tts:
+    image: tts-live-cosyvoice:dev
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.live
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATA_DIR: /data
+      HF_HOME: /data/huggingface
+      HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+      INIT_DB: "false"
+      PREVIEW_BACKEND: mock
+      LIVE_BACKEND: cosyvoice2
+      COSYVOICE_MODEL_DIR: /data/models/CosyVoice2-0.5B
+      COSYVOICE_PROMPT_DIR: /data/cosyvoice_prompts
+      COSYVOICE_DEFAULT_PROMPT_NAME: default
+      COSYVOICE_STREAM: "true"
+      COSYVOICE_TEXT_FRONTEND: "true"
+      COSYVOICE_SPEED: "1.0"
+      COSYVOICE_FP16: "true"
+      COSYVOICE_LOAD_JIT: "false"
+      COSYVOICE_LOAD_TRT: "false"
+      COSYVOICE_LOAD_VLLM: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./data:/data
     gpus: all
 
   trainer:
@@ -3908,11 +4537,14 @@ services:
       DATA_DIR: /data
       HF_HOME: /data/huggingface
       HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
+      INIT_DB: "false"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api:
+        condition: service_started
     volumes:
       - ./data:/data
     profiles: ["trainer"]
@@ -3924,6 +4556,7 @@ services:
       context: ./frontend
     depends_on:
       - api
+      - live_tts
     ports:
       - "8080:80"
 
@@ -3964,6 +4597,78 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Preview должен оставаться на основном API (Qwen)
+    location = /api/v1/live/preview {
+        proxy_pass http://api:8000/api/v1/live/preview;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
+    location = /api/v1/live/preview-meta {
+        proxy_pass http://api:8000/api/v1/live/preview-meta;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
+    # Настоящий live уходит в отдельный CosyVoice2 сервис
+    location /api/v1/live/ws/ {
+        proxy_pass http://live_tts:8000/api/v1/live/ws/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    location = /api/v1/live/enqueue {
+        proxy_pass http://live_tts:8000/api/v1/live/enqueue;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
+    location = /api/v1/live/buffer/append {
+        proxy_pass http://live_tts:8000/api/v1/live/buffer/append;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
+    location = /api/v1/live/buffer/flush {
+        proxy_pass http://live_tts:8000/api/v1/live/buffer/flush;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
+    # Всё остальное API — в основной backend
     location /api/ {
         proxy_pass http://api:8000/api/;
         proxy_http_version 1.1;
@@ -3975,15 +4680,6 @@ server {
         proxy_send_timeout 600s;
         proxy_read_timeout 600s;
         send_timeout 600s;
-    }
-
-    location /api/v1/live/ws/ {
-        proxy_pass http://api:8000/api/v1/live/ws/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 86400;
     }
 
     location / {
@@ -5174,8 +5870,8 @@ server {
 
 
 === SUMMARY ===
-included: 75
+included: 79
 skipped(binary): 0
 skipped(size): 0
 skipped(ext): 0
-totalBytes(approx): 162319
+totalBytes(approx): 183797

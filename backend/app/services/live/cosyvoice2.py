@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from app.services.cosyvoice_runtime import get_cosyvoice_runtime
 from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
+from app.services.live.cosyvoice_runtime import get_cosyvoice_runtime
 
 
 class CosyVoice2LiveEngine(LiveEngine):

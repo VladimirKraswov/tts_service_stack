@@ -5,13 +5,7 @@ import wave
 from typing import AsyncIterator
 
 from app.core.config import get_settings
-from app.services.live.base import (
-    BufferedLiveStreamSession,
-    LiveAudioChunk,
-    LiveEngine,
-    LiveStreamSession,
-    LiveSynthesisRequest,
-)
+from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
 from app.services.qwen_runtime import QwenSynthesisRequest, get_qwen_runtime
 
 
@@ -22,12 +16,6 @@ class QwenLiveEngine(LiveEngine):
 
     async def warmup(self) -> None:
         await self.runtime.warmup()
-
-    async def open_session(self) -> LiveStreamSession:
-        await self.warmup()
-        session = BufferedLiveStreamSession(self.synthesize_segment)
-        await session.start()
-        return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
         wav_bytes, sample_rate = await self.runtime.generate_wav_bytes(
