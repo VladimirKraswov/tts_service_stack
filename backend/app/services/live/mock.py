@@ -6,7 +6,13 @@ import struct
 from typing import AsyncIterator
 
 from app.core.config import get_settings
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
+from app.services.live.base import (
+    BufferedLiveStreamSession,
+    LiveAudioChunk,
+    LiveEngine,
+    LiveStreamSession,
+    LiveSynthesisRequest,
+)
 
 
 class MockLiveEngine(LiveEngine):
@@ -19,6 +25,12 @@ class MockLiveEngine(LiveEngine):
             return
         await asyncio.sleep(0.02)
         self._warm = True
+
+    async def open_session(self) -> LiveStreamSession:
+        await self.warmup()
+        session = BufferedLiveStreamSession(self.synthesize_segment)
+        await session.start()
+        return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
         await self.warmup()

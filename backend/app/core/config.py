@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path('/data'), alias='DATA_DIR')
 
     tts_backend: str = Field(default='mock', alias='TTS_BACKEND')
+
     qwen_model_name: str = Field(default='Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice', alias='QWEN_MODEL_NAME')
     qwen_device: str = Field(default='cuda:0', alias='QWEN_DEVICE')
     qwen_dtype: str = Field(default='bfloat16', alias='QWEN_DTYPE')
@@ -32,6 +33,13 @@ class Settings(BaseSettings):
         default='Четко, спокойно, как технический диктор.',
         alias='QWEN_PREVIEW_STYLE',
     )
+
+    qwen_realtime_ws_url: str | None = Field(default=None, alias='QWEN_REALTIME_WS_URL')
+    qwen_realtime_api_key: str | None = Field(default=None, alias='QWEN_REALTIME_API_KEY')
+    qwen_realtime_model: str = Field(default='qwen3-tts-flash-realtime', alias='QWEN_REALTIME_MODEL')
+    qwen_realtime_mode: str = Field(default='commit', alias='QWEN_REALTIME_MODE')
+    qwen_realtime_sample_rate: int = Field(default=24000, alias='QWEN_REALTIME_SAMPLE_RATE')
+    qwen_realtime_format: str = Field(default='pcm', alias='QWEN_REALTIME_FORMAT')
 
     audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')

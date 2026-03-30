@@ -7,22 +7,33 @@ from app.models.dictionary import Dictionary, DictionaryEntry
 from app.models.voice import VoiceProfile
 
 
-def _ensure_voice(session, name: str, display_name: str, backend: str, model_name: str, description: str, kind: str = 'voice') -> None:
+def _ensure_voice(
+    session,
+    name: str,
+    display_name: str,
+    backend: str,
+    model_name: str,
+    description: str,
+    kind: str = 'voice',
+) -> None:
     if not session.scalar(select(VoiceProfile).where(VoiceProfile.name == name)):
-        session.add(VoiceProfile(
-            name=name,
-            display_name=display_name,
-            backend=backend,
-            model_name=model_name,
-            description=description,
-            is_enabled=True,
-            kind=kind,
-        ))
+        session.add(
+            VoiceProfile(
+                name=name,
+                display_name=display_name,
+                backend=backend,
+                model_name=model_name,
+                description=description,
+                is_enabled=True,
+                kind=kind,
+            )
+        )
 
 
 def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
+
     with SessionLocal() as session:
         default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
         if default_dictionary is None:
@@ -34,6 +45,7 @@ def init_db() -> None:
             )
             session.add(default_dictionary)
             session.flush()
+
             entries = [
                 ('Python', 'Пайтон', 'Название языка Python'),
                 ('Java', 'Джава', 'Название языка Java'),
@@ -45,9 +57,16 @@ def init_db() -> None:
                 ('__init__', 'андерскор андерскор инит андерскор андерскор', 'Python magic method'),
             ]
             for source, spoken, note in entries:
-                session.add(DictionaryEntry(dictionary_id=default_dictionary.id, source_text=source, spoken_text=spoken, note=note))
+                session.add(
+                    DictionaryEntry(
+                        dictionary_id=default_dictionary.id,
+                        source_text=source,
+                        spoken_text=spoken,
+                        note=note,
+                    )
+                )
 
-        if settings.tts_backend == 'qwen':
+        if settings.tts_backend in {'qwen', 'qwen_realtime'}:
             qwen_model = settings.qwen_model_name
             qwen_voices = [
                 ('qwen-vivian', 'Qwen Vivian', 'Vivian', 'Яркий молодой женский голос.'),
@@ -63,10 +82,42 @@ def init_db() -> None:
                 ('system-warm', 'System Warm', 'Serena', 'Совместимый системный alias для теплого голоса.'),
             ]
             for name, display_name, speaker, description in qwen_voices:
-                _ensure_voice(session, name, display_name, 'qwen', qwen_model, f'{description} Speaker={speaker}')
-            _ensure_voice(session, 'tech-lora-v1', 'Tech Style v1', 'qwen', qwen_model, 'Стиль тех-диктора через instruction prompt.', kind='lora')
-            _ensure_voice(session, 'calm-lora-v1', 'Calm Style v1', 'qwen', qwen_model, 'Спокойный стиль через instruction prompt.', kind='lora')
-            _ensure_voice(session, 'energetic-lora-v1', 'Energetic Style v1', 'qwen', qwen_model, 'Энергичный стиль через instruction prompt.', kind='lora')
+                _ensure_voice(
+                    session,
+                    name,
+                    display_name,
+                    'qwen',
+                    qwen_model,
+                    f'{description} Speaker={speaker}',
+                )
+
+            _ensure_voice(
+                session,
+                'tech-lora-v1',
+                'Tech Style v1',
+                'qwen',
+                qwen_model,
+                'Стиль тех-диктора через instruction prompt.',
+                kind='lora',
+            )
+            _ensure_voice(
+                session,
+                'calm-lora-v1',
+                'Calm Style v1',
+                'qwen',
+                qwen_model,
+                'Спокойный стиль через instruction prompt.',
+                kind='lora',
+            )
+            _ensure_voice(
+                session,
+                'energetic-lora-v1',
+                'Energetic Style v1',
+                'qwen',
+                qwen_model,
+                'Энергичный стиль через instruction prompt.',
+                kind='lora',
+            )
         else:
             _ensure_voice(session, 'system-neutral', 'System Neutral', 'mock', 'mock://neutral', 'Базовый нейтральный голос')
             _ensure_voice(session, 'system-warm', 'System Warm', 'mock', 'mock://warm', 'Теплый голос для тестов')

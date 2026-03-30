@@ -12,7 +12,7 @@ def get_preview_engine() -> PreviewEngine:
         return _engine
 
     settings = get_settings()
-    if settings.tts_backend == 'qwen':
+    if settings.tts_backend in {'qwen', 'qwen_realtime'}:
         _engine = QwenPreviewEngine()
     else:
         _engine = MockPreviewEngine()

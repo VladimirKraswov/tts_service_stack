@@ -10,3 +10,4 @@ orjson==3.10.18
 numpy==2.2.6
 soundfile==0.13.1
 qwen-tts==0.1.0
+websockets>=13,<16
