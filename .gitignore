@@ -43,6 +43,6 @@ yarn-error.log*
 Thumbs.db
 
 # Project specific
-/data/
+/data/huggingface/
 /data_test/
 backend/.env.test
