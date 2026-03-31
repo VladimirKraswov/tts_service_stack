@@ -38,25 +38,31 @@ RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|
       ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
     python -m pip install -r /tmp/cosyvoice-requirements.txt
 
-# Final override: force Blackwell-compatible torch at the very end
-RUN python -m pip uninstall -y torch torchvision torchaudio || true && \
-    python -m pip install \
+RUN python -m pip uninstall -y torch torchvision torchaudio || true
+
+RUN python -m pip install --force-reinstall --no-deps \
       torch==2.7.1 \
       torchvision==0.22.1 \
       torchaudio==2.7.1 \
       --index-url https://download.pytorch.org/whl/cu128
 
+RUN python -m pip show torch torchvision torchaudio
+
 RUN python - <<'PY'
 import sys
-print("python:", sys.version)
-
 import torch
+
+print("python:", sys.version)
 print("torch:", torch.__version__)
 print("cuda:", torch.version.cuda)
 print("cuda available:", torch.cuda.is_available())
+
 if torch.cuda.is_available():
     print("device:", torch.cuda.get_device_name(0))
     print("capability:", torch.cuda.get_device_capability(0))
+
+assert torch.__version__.startswith("2.7.1"), f"unexpected torch version: {torch.__version__}"
+assert str(torch.version.cuda).startswith("12.8"), f"unexpected torch cuda: {torch.version.cuda}"
 
 import whisper
 print("whisper:", whisper.__file__)
