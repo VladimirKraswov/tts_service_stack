@@ -23,13 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sox \
     libsox-dev \
     libsndfile1 \
-    libcusparselt0-cuda-12 \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*
-
-RUN dpkg -L libcusparselt0-cuda-12 | grep 'libcusparseLt\.so' || true && \
-    find /usr /usr/local -name 'libcusparseLt.so*' 2>/dev/null || true && \
-    ldconfig -p | grep -i cusparse || true
 
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
     python -m pip install --upgrade "pip<25.1" "setuptools<82" wheel packaging
@@ -44,18 +39,16 @@ RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|
       ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
     python -m pip install -r /tmp/cosyvoice-requirements.txt
 
-RUN python -m pip uninstall -y torch torchvision torchaudio || true && \
-    python -m pip install --force-reinstall --no-deps \
+RUN python -m pip uninstall -y torch torchvision torchaudio nvidia-cusparselt-cu12 || true && \
+    python -m pip install --force-reinstall \
       torch==2.7.1 \
       torchvision==0.22.1 \
       torchaudio==2.7.1 \
       --index-url https://download.pytorch.org/whl/cu128
 
-RUN python -m pip show torch torchvision torchaudio
+RUN python -m pip show torch torchvision torchaudio nvidia-cusparselt-cu12
 
-RUN find /usr /usr/local -name 'libcusparseLt.so*' 2>/dev/null || true && \
-    ldconfig -p | grep -i cusparse || true && \
-    python - <<'PY'
+RUN python - <<'PY'
 import sys
 import torch
 
