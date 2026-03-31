@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sox \
     libsox-dev \
     libsndfile1 \
+    libcusparselt0-cuda-12 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
@@ -38,9 +39,8 @@ RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|
       ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
     python -m pip install -r /tmp/cosyvoice-requirements.txt
 
-RUN python -m pip uninstall -y torch torchvision torchaudio || true
-
-RUN python -m pip install --force-reinstall --no-deps \
+RUN python -m pip uninstall -y torch torchvision torchaudio || true && \
+    python -m pip install --force-reinstall --no-deps \
       torch==2.7.1 \
       torchvision==0.22.1 \
       torchaudio==2.7.1 \
