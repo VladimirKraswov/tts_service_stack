@@ -32,19 +32,19 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOI
     cd ${COSYVOICE_ROOT} && \
     git submodule update --init --recursive
 
-# RTX 5090 / Blackwell-compatible PyTorch
-RUN python -m pip install \
+RUN python -m pip install --no-build-isolation openai-whisper==20231117
+
+RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|torchvision([<=> ].*)?)$' \
+      ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
+    python -m pip install -r /tmp/cosyvoice-requirements.txt
+
+# Final override: force Blackwell-compatible torch at the very end
+RUN python -m pip uninstall -y torch torchvision torchaudio || true && \
+    python -m pip install \
       torch==2.7.1 \
       torchvision==0.22.1 \
       torchaudio==2.7.1 \
       --index-url https://download.pytorch.org/whl/cu128
-
-RUN python -m pip install --no-build-isolation openai-whisper==20231117
-
-# Do NOT let CosyVoice requirements downgrade torch back to old cu121 builds
-RUN grep -Ev '^(openai-whisper==20231117|torch([<=>].*)?|torchaudio([<=>].*)?|torchvision([<=>].*)?)$' \
-      ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
-    python -m pip install -r /tmp/cosyvoice-requirements.txt
 
 RUN python - <<'PY'
 import sys
