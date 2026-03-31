@@ -3,7 +3,7 @@ FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_HOME=/usr/local/cuda \
     PATH=/usr/local/cuda/bin:${PATH} \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH} \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
     COSYVOICE_ROOT=/opt/CosyVoice \
@@ -24,7 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsox-dev \
     libsndfile1 \
     libcusparselt0-cuda-12 \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
+
+RUN dpkg -L libcusparselt0-cuda-12 | grep 'libcusparseLt\.so' || true && \
+    find /usr /usr/local -name 'libcusparseLt.so*' 2>/dev/null || true && \
+    ldconfig -p | grep -i cusparse || true
 
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
     python -m pip install --upgrade "pip<25.1" "setuptools<82" wheel packaging
@@ -48,7 +53,9 @@ RUN python -m pip uninstall -y torch torchvision torchaudio || true && \
 
 RUN python -m pip show torch torchvision torchaudio
 
-RUN python - <<'PY'
+RUN find /usr /usr/local -name 'libcusparseLt.so*' 2>/dev/null || true && \
+    ldconfig -p | grep -i cusparse || true && \
+    python - <<'PY'
 import sys
 import torch
 
