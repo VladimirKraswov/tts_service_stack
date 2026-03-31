@@ -1,4 +1,4 @@
-FROM tts-cosyvoice-base:cu121
+FROM tts-cosyvoice-base:cu128
 
 WORKDIR /app
 
