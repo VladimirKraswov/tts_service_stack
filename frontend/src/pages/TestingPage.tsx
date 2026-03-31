@@ -28,7 +28,7 @@ export function TestingPage() {
   const [previewProcessedText, setPreviewProcessedText] = useState('')
   const [isPreviewing, setIsPreviewing] = useState(false)
 
-  const [liveDraft, setLiveDraft] = useState('Это live режим. Текст попадает в буфер частями и быстро начинает озвучиваться.')
+  const [liveDraft, setLiveDraft] = useState('Live через CosyVoice отключен. Сейчас используется mock backend для проверки буфера, событий и WebSocket.')
   const [liveStatus, setLiveStatus] = useState('disconnected')
   const [pendingText, setPendingText] = useState('')
   const [pendingChars, setPendingChars] = useState(0)
@@ -371,7 +371,7 @@ export function TestingPage() {
       </section>
 
       <section className="card wide">
-        <h2>Live mode — минимальная задержка через буфер</h2>
+        <h2>Live mode — CosyVoice отключен, сейчас работает mock backend</h2>
 
         <label className="row" style={{ gap: '8px', alignItems: 'center' }}>
           <input

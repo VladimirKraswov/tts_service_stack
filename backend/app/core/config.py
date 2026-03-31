@@ -45,19 +45,6 @@ class Settings(BaseSettings):
         alias='QWEN_PREVIEW_STYLE',
     )
 
-    # CosyVoice2 live
-    cosyvoice_model_dir: Path = Field(default=Path('/data/models/CosyVoice2-0.5B'), alias='COSYVOICE_MODEL_DIR')
-    cosyvoice_prompt_dir: Path = Field(default=Path('/data/cosyvoice_prompts'), alias='COSYVOICE_PROMPT_DIR')
-    cosyvoice_default_prompt_name: str = Field(default='default', alias='COSYVOICE_DEFAULT_PROMPT_NAME')
-    cosyvoice_stream: bool = Field(default=True, alias='COSYVOICE_STREAM')
-    cosyvoice_text_frontend: bool = Field(default=True, alias='COSYVOICE_TEXT_FRONTEND')
-    cosyvoice_speed: float = Field(default=1.0, alias='COSYVOICE_SPEED')
-    cosyvoice_fp16: bool = Field(default=True, alias='COSYVOICE_FP16')
-    cosyvoice_load_jit: bool = Field(default=False, alias='COSYVOICE_LOAD_JIT')
-    cosyvoice_load_trt: bool = Field(default=False, alias='COSYVOICE_LOAD_TRT')
-    cosyvoice_load_vllm: bool = Field(default=False, alias='COSYVOICE_LOAD_VLLM')
-    cosyvoice_max_concurrent: int = Field(default=1, alias='COSYVOICE_MAX_CONCURRENT')
-
     audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
 
@@ -102,5 +89,4 @@ def get_settings() -> Settings:
     settings.datasets_dir.mkdir(parents=True, exist_ok=True)
     settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
     settings.models_dir.mkdir(parents=True, exist_ok=True)
-    settings.cosyvoice_prompt_dir.mkdir(parents=True, exist_ok=True)
     return settings
