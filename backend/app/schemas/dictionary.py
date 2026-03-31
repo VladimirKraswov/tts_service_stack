@@ -14,21 +14,21 @@ class DictionaryEntryRead(DictionaryEntryCreate):
 
 
 class DictionaryCreate(BaseModel):
-    name: str
-    slug: str
+    name: str = Field(min_length=1, max_length=120)
+    slug: str = Field(min_length=1, max_length=120)
     description: str | None = None
     is_default: bool = False
 
 
 class DictionaryRead(DictionaryCreate):
     id: int
-    entries: list[DictionaryEntryRead] = []
+    entries: list[DictionaryEntryRead] = Field(default_factory=list)
 
     model_config = {'from_attributes': True}
 
 
 class PronunciationPreviewRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1)
 
 
 class PronunciationPreviewResponse(BaseModel):

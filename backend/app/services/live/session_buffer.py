@@ -76,7 +76,7 @@ class LiveTextBuffer:
         return (time.monotonic() - self.last_update_ts) >= (settings.live_buffer_idle_ms / 1000.0)
 
     def _extract_ready(self, *, force: bool) -> list[BufferedSegment]:
-        text = self.pending_text.strip()
+        text = re.sub(r'\s+', ' ', self.pending_text).strip()
         if not text:
             self.pending_text = ''
             return []
@@ -93,25 +93,30 @@ class LiveTextBuffer:
     def _split_ready(self, text: str) -> tuple[list[str], str]:
         ready: list[str] = []
         remainder = text
+        min_len = settings.live_buffer_min_chars
 
         while remainder:
-            hard_match = re.match(r'^(.*?[.!?;:])(\s+|$)', remainder, flags=re.DOTALL)
+            hard_match = re.match(r'^(.*?[.!?])(\s+|$)', remainder, flags=re.DOTALL)
             if hard_match:
                 segment = hard_match.group(1).strip()
-                if segment:
-                    ready.extend(self._chunk_text(segment))
-                remainder = remainder[hard_match.end():].strip()
-                continue
+                tail = remainder[hard_match.end():].strip()
 
-            if len(remainder) >= settings.live_buffer_max_chars:
-                head, tail = self._take_soft_chunk(remainder)
+                if len(segment) >= min_len or not tail:
+                    ready.extend(self._chunk_text(segment))
+                    remainder = tail
+                    continue
+
+            split_pos = self._find_soft_split(remainder)
+            if split_pos is not None:
+                head = remainder[:split_pos].strip()
+                tail = remainder[split_pos:].strip()
                 if head:
                     ready.extend(self._chunk_text(head))
-                remainder = tail
-                continue
+                    remainder = tail
+                    continue
 
-            if len(remainder) >= settings.live_buffer_soft_flush_chars and re.search(r'[,)\]]\s*$|\s+$', remainder):
-                head, tail = self._take_soft_chunk(remainder)
+            if len(remainder) >= settings.live_buffer_max_chars:
+                head, tail = self._take_force_chunk(remainder)
                 if head:
                     ready.extend(self._chunk_text(head))
                 remainder = tail
@@ -126,8 +131,8 @@ class LiveTextBuffer:
         if not text:
             return []
 
-        target = settings.live_buffer_target_chars
         max_len = settings.live_buffer_max_chars
+        min_len = settings.live_buffer_min_chars
 
         if len(text) <= max_len:
             return [text]
@@ -139,38 +144,83 @@ class LiveTextBuffer:
                 chunks.append(rest.strip())
                 break
 
-            window = rest[:max_len]
-            split_pos = window.rfind(' ', 0, target + 1)
-            if split_pos < max(8, target // 2):
-                split_pos = window.rfind(' ')
-            if split_pos <= 0:
-                split_pos = max_len
+            head, tail = self._take_force_chunk(rest)
+            if not head:
+                break
 
-            head = rest[:split_pos].strip()
-            rest = rest[split_pos:].strip()
+            chunks.append(head)
+            rest = tail
 
-            if head:
-                chunks.append(head)
+        if len(chunks) >= 2 and len(chunks[-1]) < min_len:
+            chunks[-2] = f'{chunks[-2]} {chunks[-1]}'.strip()
+            chunks.pop()
 
-        return chunks
+        return [chunk for chunk in chunks if chunk]
 
-    def _take_soft_chunk(self, text: str) -> tuple[str, str]:
+    def _find_soft_split(self, text: str) -> int | None:
+        if len(text) < settings.live_buffer_soft_flush_chars:
+            return None
+
+        window = text[: min(len(text), settings.live_buffer_max_chars)]
+        min_len = min(settings.live_buffer_min_chars, len(window))
+        target = min(settings.live_buffer_target_chars, len(window))
+
+        punctuation_candidates: list[int] = []
+        for match in re.finditer(r'[,:;)\]]\s+', window):
+            split_pos = match.end()
+            if min_len <= split_pos <= len(window):
+                punctuation_candidates.append(split_pos)
+
+        sentence_candidates: list[int] = []
+        for match in re.finditer(r'[.!?]\s+', window):
+            split_pos = match.end()
+            if min_len <= split_pos <= len(window):
+                sentence_candidates.append(split_pos)
+
+        if sentence_candidates:
+            return min(sentence_candidates, key=lambda pos: abs(pos - target))
+
+        if punctuation_candidates:
+            return min(punctuation_candidates, key=lambda pos: abs(pos - target))
+
+        space_candidates: list[int] = []
+        for match in re.finditer(r'\s+', window):
+            split_pos = match.start()
+            if min_len <= split_pos <= len(window):
+                space_candidates.append(split_pos)
+
+        if space_candidates:
+            return min(space_candidates, key=lambda pos: abs(pos - target))
+
+        return None
+
+    def _take_force_chunk(self, text: str) -> tuple[str, str]:
+        text = re.sub(r'\s+', ' ', text).strip()
         if len(text) <= settings.live_buffer_max_chars:
-            return text.strip(), ''
+            return text, ''
 
-        target = settings.live_buffer_target_chars
-        window = text[:settings.live_buffer_max_chars]
+        window = text[: settings.live_buffer_max_chars]
+        min_len = min(settings.live_buffer_min_chars, len(window))
+        target = min(settings.live_buffer_target_chars, len(window))
 
-        split_pos = -1
-        for token in [', ', ') ', '] ', ' ']:
-            split_pos = max(split_pos, window.rfind(token, 0, target + 1))
-        if split_pos < max(8, target // 2):
-            split_pos = window.rfind(' ')
-        if split_pos <= 0:
-            split_pos = settings.live_buffer_target_chars
+        space_candidates = [
+            match.start()
+            for match in re.finditer(r'\s+', window)
+            if min_len <= match.start() <= len(window)
+        ]
+
+        if space_candidates:
+            split_pos = min(space_candidates, key=lambda pos: abs(pos - target))
+        else:
+            split_pos = settings.live_buffer_max_chars
 
         head = text[:split_pos].strip()
         tail = text[split_pos:].strip()
+
+        if not head:
+            head = text[: settings.live_buffer_max_chars].strip()
+            tail = text[settings.live_buffer_max_chars :].strip()
+
         return head, tail
 
     def _to_segment(self, text: str) -> BufferedSegment:

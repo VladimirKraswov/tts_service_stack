@@ -41,6 +41,7 @@ class CosyVoiceRuntime:
         *,
         text: str,
         voice_id: str | None = None,
+        language: str | None = None,
     ) -> AsyncIterator[tuple[bytes, int]]:
         await self._ensure_model()
         profile = self._resolve_prompt_profile(voice_id)
@@ -75,7 +76,6 @@ class CosyVoiceRuntime:
                 name='cosyvoice2-stream-worker',
             ).start()
 
-            seq_count = 0
             while True:
                 item = await queue.get()
                 if item is done:
@@ -85,7 +85,6 @@ class CosyVoiceRuntime:
                 if not isinstance(item, (bytes, bytearray)):
                     raise RuntimeError(f'Unexpected CosyVoice stream payload type: {type(item)}')
 
-                seq_count += 1
                 yield bytes(item), self._sample_rate
 
     async def _ensure_model(self) -> None:
@@ -96,11 +95,18 @@ class CosyVoiceRuntime:
             if self._model is not None:
                 return
 
+            if not self.settings.cosyvoice_model_dir.exists():
+                raise RuntimeError(
+                    f'CosyVoice model dir does not exist: {self.settings.cosyvoice_model_dir}'
+                )
+
+            self._prepare_runtime_deps()
+
             try:
                 from cosyvoice.cli.cosyvoice import AutoModel
             except Exception as exc:  # pragma: no cover
                 raise RuntimeError(
-                    'Failed to import CosyVoice. Check Docker image and PYTHONPATH.'
+                    'Failed to import CosyVoice. Check Docker image, PYTHONPATH, ONNX Runtime, CUDA and cuDNN.'
                 ) from exc
 
             logger.info(
@@ -122,6 +128,46 @@ class CosyVoiceRuntime:
             self._sample_rate = int(getattr(self._model, 'sample_rate', self.settings.audio_sample_rate))
 
             logger.info('CosyVoice model loaded sample_rate=%s', self._sample_rate)
+
+    def _prepare_runtime_deps(self) -> None:
+        try:
+            import torch
+
+            _ = torch.cuda.is_available()
+            logger.info(
+                'CosyVoice torch prepared version=%s cuda=%s',
+                getattr(torch, '__version__', 'unknown'),
+                getattr(torch.version, 'cuda', 'unknown'),
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning('Torch preload for CosyVoice failed: %s', exc)
+
+        try:
+            import onnxruntime as ort
+
+            preload = getattr(ort, 'preload_dlls', None)
+            if callable(preload):
+                try:
+                    preload(cuda=True, cudnn=True)
+                except TypeError:
+                    preload()
+
+            providers: list[str] = []
+            try:
+                providers = list(ort.get_available_providers())
+            except Exception:
+                providers = []
+
+            logger.info(
+                'ONNX Runtime prepared version=%s providers=%s',
+                getattr(ort, '__version__', 'unknown'),
+                ', '.join(providers) if providers else 'n/a',
+            )
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError(
+                'Failed to import ONNX Runtime for CosyVoice. '
+                'Check onnxruntime-gpu / CUDA / cuDNN compatibility inside the live image.'
+            ) from exc
 
     def _resolve_prompt_profile(self, requested_name: str | None) -> PromptProfile:
         candidates: list[str] = []
@@ -149,21 +195,25 @@ class CosyVoiceRuntime:
         direct_wav = prompt_dir / f'{name}.wav'
         direct_txt = prompt_dir / f'{name}.txt'
         if direct_wav.exists() and direct_txt.exists():
-            return PromptProfile(
-                name=name,
-                wav_path=direct_wav,
-                prompt_text=direct_txt.read_text(encoding='utf-8').strip(),
-            )
+            prompt_text = direct_txt.read_text(encoding='utf-8').strip()
+            if prompt_text:
+                return PromptProfile(
+                    name=name,
+                    wav_path=direct_wav,
+                    prompt_text=prompt_text,
+                )
 
         nested_dir = prompt_dir / name
         nested_wav = nested_dir / 'prompt.wav'
         nested_txt = nested_dir / 'prompt.txt'
         if nested_wav.exists() and nested_txt.exists():
-            return PromptProfile(
-                name=name,
-                wav_path=nested_wav,
-                prompt_text=nested_txt.read_text(encoding='utf-8').strip(),
-            )
+            prompt_text = nested_txt.read_text(encoding='utf-8').strip()
+            if prompt_text:
+                return PromptProfile(
+                    name=name,
+                    wav_path=nested_wav,
+                    prompt_text=prompt_text,
+                )
 
         return None
 

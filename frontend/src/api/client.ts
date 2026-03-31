@@ -79,7 +79,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const client = {
   health: () => api<{ status: string }>('/api/v1/health'),
-  meta: () => api<Record<string, string>>('/api/v1/meta'),
+  meta: () => api<Record<string, unknown>>('/api/v1/meta'),
   listDictionaries: () => api<Dictionary[]>('/api/v1/dictionaries'),
   createDictionary: (payload: { name: string; slug: string; description?: string; is_default?: boolean }) =>
     api<Dictionary>('/api/v1/dictionaries', {

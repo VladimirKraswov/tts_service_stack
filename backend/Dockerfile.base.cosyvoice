@@ -35,19 +35,30 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOI
 
 RUN python -m pip install --no-build-isolation openai-whisper==20231117
 
-RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|torchvision([<=> ].*)?)$' \
+RUN grep -Ev '^(openai-whisper==20231117|numpy([<=> ].*)?|onnxruntime([<=> ].*)?|onnxruntime-gpu([<=> ].*)?|torch([<=> ].*)?|torchaudio([<=> ].*)?|torchvision([<=> ].*)?)$' \
       ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
     python -m pip install -r /tmp/cosyvoice-requirements.txt
 
-RUN python -m pip uninstall -y torch torchvision torchaudio nvidia-cusparselt-cu12 numpy || true && \
+RUN python -m pip uninstall -y \
+      torch torchvision torchaudio \
+      numpy \
+      onnxruntime \
+      onnxruntime-gpu || true && \
     python -m pip install --force-reinstall \
       torch==2.7.1 \
       torchvision==0.22.1 \
       torchaudio==2.7.1 \
       --index-url https://download.pytorch.org/whl/cu128 && \
-    python -m pip install --force-reinstall "numpy<2"
+    python -m pip install --force-reinstall \
+      "numpy<2" \
+      "onnxruntime-gpu==1.20.1"
 
-RUN python -m pip show numpy torch torchvision torchaudio nvidia-cusparselt-cu12
+RUN python -m pip show \
+      numpy \
+      torch \
+      torchvision \
+      torchaudio \
+      onnxruntime-gpu
 
 RUN python - <<'PY'
 import sys
@@ -63,6 +74,7 @@ print("cuda:", torch.version.cuda)
 print("cuda available:", torch.cuda.is_available())
 
 assert numpy.__version__.startswith("1."), f"unexpected numpy version: {numpy.__version__}"
+assert onnxruntime.__version__.startswith("1.20."), f"unexpected onnxruntime version: {onnxruntime.__version__}"
 assert torch.__version__.startswith("2.7.1"), f"unexpected torch version: {torch.__version__}"
 assert str(torch.version.cuda).startswith("12.8"), f"unexpected torch cuda: {torch.version.cuda}"
 

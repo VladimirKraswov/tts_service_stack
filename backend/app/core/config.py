@@ -6,7 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+        protected_namespaces=(),
+    )
 
     app_title: str = Field(default='TTS Admin Stack', alias='APP_TITLE')
     app_host: str = Field(default='0.0.0.0', alias='APP_HOST')
@@ -56,12 +61,13 @@ class Settings(BaseSettings):
     audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
 
-    live_buffer_idle_ms: int = Field(default=120, alias='LIVE_BUFFER_IDLE_MS')
-    live_buffer_soft_flush_chars: int = Field(default=24, alias='LIVE_BUFFER_SOFT_FLUSH_CHARS')
-    live_buffer_target_chars: int = Field(default=36, alias='LIVE_BUFFER_TARGET_CHARS')
-    live_buffer_max_chars: int = Field(default=56, alias='LIVE_BUFFER_MAX_CHARS')
-    live_pcm_chunk_ms: int = Field(default=40, alias='LIVE_PCM_CHUNK_MS')
+    live_buffer_idle_ms: int = Field(default=220, alias='LIVE_BUFFER_IDLE_MS')
+    live_buffer_soft_flush_chars: int = Field(default=80, alias='LIVE_BUFFER_SOFT_FLUSH_CHARS')
+    live_buffer_target_chars: int = Field(default=140, alias='LIVE_BUFFER_TARGET_CHARS')
+    live_buffer_max_chars: int = Field(default=220, alias='LIVE_BUFFER_MAX_CHARS')
+    live_buffer_min_chars: int = Field(default=60, alias='LIVE_BUFFER_MIN_CHARS')
     live_dictionary_cache_ttl_seconds: int = Field(default=10, alias='LIVE_DICTIONARY_CACHE_TTL_SECONDS')
+    live_pcm_chunk_ms: int = Field(default=40, alias='LIVE_PCM_CHUNK_MS')
 
     @property
     def effective_preview_backend(self) -> str:

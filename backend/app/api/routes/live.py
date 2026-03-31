@@ -156,28 +156,49 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
-            data = json.loads(raw)
+
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                await websocket.send_json({'type': 'job.error', 'error': 'Invalid JSON payload'})
+                continue
+
+            if not isinstance(data, dict):
+                await websocket.send_json({'type': 'job.error', 'error': 'Payload must be a JSON object'})
+                continue
+
             msg_type = data.get('type')
+            language = str(data.get('language') or 'ru')
 
             if msg_type == 'append_text':
+                text = str(data.get('text') or '').strip()
+                if not text:
+                    await websocket.send_json({'type': 'job.error', 'error': 'append_text requires non-empty text'})
+                    continue
+
                 await manager.append_text(
                     session_id,
-                    data.get('text', ''),
+                    text,
                     dictionary_id=data.get('dictionary_id'),
                     voice_id=data.get('voice_id'),
                     lora_name=data.get('lora_name'),
-                    language=data.get('language', 'ru'),
+                    language=language,
                     flush=bool(data.get('flush', False)),
                 )
 
             elif msg_type == 'enqueue_text':
+                text = str(data.get('text') or '').strip()
+                if not text:
+                    await websocket.send_json({'type': 'job.error', 'error': 'enqueue_text requires non-empty text'})
+                    continue
+
                 await manager.enqueue_once(
                     session_id,
-                    data.get('text', ''),
+                    text,
                     dictionary_id=data.get('dictionary_id'),
                     voice_id=data.get('voice_id'),
                     lora_name=data.get('lora_name'),
-                    language=data.get('language', 'ru'),
+                    language=language,
                 )
 
             elif msg_type == 'flush':
@@ -188,6 +209,14 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
 
             elif msg_type == 'ping':
                 await websocket.send_json({'type': 'pong'})
+
+            else:
+                await websocket.send_json(
+                    {
+                        'type': 'job.error',
+                        'error': f'Unknown message type: {msg_type}',
+                    }
+                )
 
     except WebSocketDisconnect:
         await manager.disconnect(session_id)

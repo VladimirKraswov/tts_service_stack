@@ -1,7 +1,7 @@
 === CODE BUNDLE ===
 root: /Volumes/Extend/work/tts_service_stack
 ignore: .codebundleignore
-generated: 2026-03-30T21:22:55.939Z
+generated: 2026-03-31T18:17:44.621Z
 
 
 
@@ -139,7 +139,7 @@ yarn-error.log*
 Thumbs.db
 
 # Project specific
-/data/
+/data/huggingface/
 /data_test/
 backend/.env.test
 
@@ -1574,8 +1574,8 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from app.services.cosyvoice_runtime import get_cosyvoice_runtime
 from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
+from app.services.live.cosyvoice_runtime import get_cosyvoice_runtime
 
 
 class CosyVoice2LiveEngine(LiveEngine):
@@ -1623,9 +1623,6 @@ path: /backend/app/services/live/factory.py
 ----------------------------------------
 from app.core.config import get_settings
 from app.services.live.base import LiveEngine
-from app.services.live.cosyvoice2 import CosyVoice2LiveEngine
-from app.services.live.mock import MockLiveEngine
-from app.services.live.qwen import QwenLiveEngine
 
 _engine: LiveEngine | None = None
 
@@ -1639,10 +1636,16 @@ def get_live_engine() -> LiveEngine:
     backend = settings.effective_live_backend
 
     if backend in {'cosyvoice2', 'cosyvoice'}:
+        from app.services.live.cosyvoice2 import CosyVoice2LiveEngine
+
         _engine = CosyVoice2LiveEngine()
     elif backend == 'qwen':
+        from app.services.live.qwen import QwenLiveEngine
+
         _engine = QwenLiveEngine()
     else:
+        from app.services.live.mock import MockLiveEngine
+
         _engine = MockLiveEngine()
 
     return _engine
@@ -1963,13 +1966,7 @@ import struct
 from typing import AsyncIterator
 
 from app.core.config import get_settings
-from app.services.live.base import (
-    BufferedLiveStreamSession,
-    LiveAudioChunk,
-    LiveEngine,
-    LiveStreamSession,
-    LiveSynthesisRequest,
-)
+from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
 
 
 class MockLiveEngine(LiveEngine):
@@ -1982,12 +1979,6 @@ class MockLiveEngine(LiveEngine):
             return
         await asyncio.sleep(0.02)
         self._warm = True
-
-    async def open_session(self) -> LiveStreamSession:
-        await self.warmup()
-        session = BufferedLiveStreamSession(self.synthesize_segment)
-        await session.start()
-        return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
         await self.warmup()
@@ -2542,13 +2533,7 @@ import wave
 from typing import AsyncIterator
 
 from app.core.config import get_settings
-from app.services.live.base import (
-    BufferedLiveStreamSession,
-    LiveAudioChunk,
-    LiveEngine,
-    LiveStreamSession,
-    LiveSynthesisRequest,
-)
+from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
 from app.services.qwen_runtime import QwenSynthesisRequest, get_qwen_runtime
 
 
@@ -2559,12 +2544,6 @@ class QwenLiveEngine(LiveEngine):
 
     async def warmup(self) -> None:
         await self.runtime.warmup()
-
-    async def open_session(self) -> LiveStreamSession:
-        await self.warmup()
-        session = BufferedLiveStreamSession(self.synthesize_segment)
-        await session.start()
-        return session
 
     async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
         wav_bytes, sample_rate = await self.runtime.generate_wav_bytes(
@@ -2793,136 +2772,6 @@ class LiveTextBuffer:
         return f'{left} {right}'.strip()
 
 
-path: /backend/app/services/live_sessions.py
-----------------------------------------
-from __future__ import annotations
-
-import asyncio
-import base64
-import logging
-import time
-from dataclasses import dataclass
-from typing import Any
-
-from fastapi import WebSocket
-from redis.asyncio import Redis
-from sqlalchemy.orm import Session
-
-from app.core.config import get_settings
-from app.db.session import SessionLocal
-from app.services.buffer import RedisFifoBuffer
-from app.services.preprocessor import TechnicalPreprocessor
-from app.services.tts.base import SynthRequest, TTSEngine
-
-logger = logging.getLogger(__name__)
-settings = get_settings()
-
-
-@dataclass(slots=True)
-class SessionContext:
-    session_id: str
-    websocket: WebSocket
-    task: asyncio.Task[None]
-
-
-class LiveSessionManager:
-    def __init__(self, redis: Redis, tts_engine: TTSEngine, preprocessor: TechnicalPreprocessor) -> None:
-        self.redis = redis
-        self.buffer = RedisFifoBuffer(redis)
-        self.tts_engine = tts_engine
-        self.preprocessor = preprocessor
-        self.sessions: dict[str, SessionContext] = {}
-
-    async def connect(self, session_id: str, websocket: WebSocket) -> None:
-        await websocket.accept()
-        await self.tts_engine.warmup()
-        task = asyncio.create_task(self._consume_loop(session_id, websocket), name=f'live-session-{session_id}')
-        self.sessions[session_id] = SessionContext(session_id=session_id, websocket=websocket, task=task)
-        await websocket.send_json({'type': 'session.ready', 'session_id': session_id})
-
-    async def disconnect(self, session_id: str) -> None:
-        ctx = self.sessions.pop(session_id, None)
-        if ctx is None:
-            return
-        ctx.task.cancel()
-        try:
-            await ctx.task
-        except asyncio.CancelledError:
-            pass
-
-    async def enqueue(self, session_id: str, payload: dict[str, Any]) -> None:
-        await self.buffer.enqueue(session_id, payload)
-
-    async def _consume_loop(self, session_id: str, websocket: WebSocket) -> None:
-        while True:
-            payload = await self.buffer.consume(session_id=session_id, timeout=1)
-            if payload is None:
-                await asyncio.sleep(0)
-                continue
-
-            started_at = time.perf_counter()
-            job_id = payload.get('job_id') or f'{session_id}-{int(started_at * 1000)}'
-            with SessionLocal() as db:
-                processed = self.preprocessor.process(
-                    db=db,
-                    text=payload['text'],
-                    dictionary_id=payload.get('dictionary_id'),
-                )
-            await websocket.send_json({
-                'type': 'job.accepted',
-                'job_id': job_id,
-                'processed_text': processed.processed_text,
-                'chunks': len(processed.chunks),
-            })
-            first_audio_sent = False
-            try:
-                for chunk_index, chunk_text in enumerate(processed.chunks):
-                    await websocket.send_json({
-                        'type': 'chunk.ready',
-                        'job_id': job_id,
-                        'chunk_index': chunk_index,
-                        'text': chunk_text,
-                    })
-                    async for audio in self.tts_engine.synthesize_stream(
-                        SynthRequest(
-                            text=chunk_text,
-                            voice_id=payload.get('voice_id'),
-                            lora_name=payload.get('lora_name'),
-                            language=payload.get('language', 'ru'),
-                        )
-                    ):
-                        if not first_audio_sent:
-                            first_audio_sent = True
-                            await websocket.send_json({
-                                'type': 'metrics.first_audio',
-                                'job_id': job_id,
-                                'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
-                            })
-                        await websocket.send_json({
-                            'type': 'audio.chunk',
-                            'job_id': job_id,
-                            'chunk_index': chunk_index,
-                            'seq_no': audio.seq_no,
-                            'text': audio.text,
-                            'audio_b64': base64.b64encode(audio.wav_bytes).decode('ascii'),
-                                'sample_rate': settings.audio_sample_rate,
-                            'mime': 'audio/l16',
-                            'is_last': audio.is_last,
-                        })
-                await websocket.send_json({
-                    'type': 'job.done',
-                    'job_id': job_id,
-                    'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
-                })
-            except Exception as e:
-                logger.exception("Synthesis failed for session %s", session_id)
-                await websocket.send_json({
-                    'type': 'job.error',
-                    'job_id': job_id,
-                    'error': str(e),
-                })
-
-
 path: /backend/app/services/meta.py
 ----------------------------------------
 from app.core.config import get_settings
@@ -3127,8 +2976,6 @@ path: /backend/app/services/preview/factory.py
 ----------------------------------------
 from app.core.config import get_settings
 from app.services.preview.base import PreviewEngine
-from app.services.preview.mock import MockPreviewEngine
-from app.services.preview.qwen import QwenPreviewEngine
 
 _engine: PreviewEngine | None = None
 
@@ -3142,8 +2989,12 @@ def get_preview_engine() -> PreviewEngine:
     backend = settings.effective_preview_backend
 
     if backend == 'qwen':
+        from app.services.preview.qwen import QwenPreviewEngine
+
         _engine = QwenPreviewEngine()
     else:
+        from app.services.preview.mock import MockPreviewEngine
+
         _engine = MockPreviewEngine()
 
     return _engine
@@ -4102,12 +3953,12 @@ RUN pip install --no-cache-dir \
 
 path: /backend/Dockerfile.base.cosyvoice
 ----------------------------------------
-FROM nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_HOME=/usr/local/cuda \
     PATH=/usr/local/cuda/bin:${PATH} \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH} \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
     COSYVOICE_ROOT=/opt/CosyVoice \
@@ -4127,6 +3978,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sox \
     libsox-dev \
     libsndfile1 \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3 /usr/bin/python && \
@@ -4136,24 +3988,55 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOI
     cd ${COSYVOICE_ROOT} && \
     git submodule update --init --recursive
 
-RUN python -m pip install \
-      --index-url https://download.pytorch.org/whl/cu121 \
-      torch==2.3.1 \
-      torchaudio==2.3.1
-
 RUN python -m pip install --no-build-isolation openai-whisper==20231117
 
-RUN grep -v '^openai-whisper==20231117$' ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
+RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|torchvision([<=> ].*)?)$' \
+      ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
     python -m pip install -r /tmp/cosyvoice-requirements.txt
+
+RUN python -m pip uninstall -y \
+      torch torchvision torchaudio \
+      nvidia-cusparselt-cu12 \
+      numpy \
+      onnxruntime \
+      onnxruntime-gpu || true && \
+    python -m pip install --force-reinstall \
+      torch==2.7.1 \
+      torchvision==0.22.1 \
+      torchaudio==2.7.1 \
+      --index-url https://download.pytorch.org/whl/cu128 && \
+    python -m pip install --force-reinstall "numpy<2" && \
+    python -m pip install --force-reinstall "onnxruntime-gpu==1.20.1"
+
+RUN python -m pip show \
+      numpy \
+      torch \
+      torchvision \
+      torchaudio \
+      onnxruntime-gpu \
+      nvidia-cusparselt-cu12
 
 RUN python - <<'PY'
 import sys
-print("python:", sys.version)
-
+import numpy
 import torch
+import onnxruntime
+
+print("python:", sys.version)
+print("numpy:", numpy.__version__)
+print("onnxruntime:", onnxruntime.__version__)
 print("torch:", torch.__version__)
 print("cuda:", torch.version.cuda)
 print("cuda available:", torch.cuda.is_available())
+
+if torch.cuda.is_available():
+    print("device:", torch.cuda.get_device_name(0))
+    print("capability:", torch.cuda.get_device_capability(0))
+
+assert numpy.__version__.startswith("1."), f"unexpected numpy version: {numpy.__version__}"
+assert onnxruntime.__version__.startswith("1.20."), f"unexpected onnxruntime version: {onnxruntime.__version__}"
+assert torch.__version__.startswith("2.7.1"), f"unexpected torch version: {torch.__version__}"
+assert str(torch.version.cuda).startswith("12.8"), f"unexpected torch cuda: {torch.version.cuda}"
 
 import whisper
 print("whisper:", whisper.__file__)
@@ -4229,9 +4112,18 @@ PY
 
 path: /backend/Dockerfile.live
 ----------------------------------------
-FROM tts-cosyvoice-base:cu121
+FROM tts-cosyvoice-base:cu128
 
 WORKDIR /app
+
+RUN python -m pip install \
+    fastapi \
+    "uvicorn[standard]" \
+    sqlalchemy \
+    "psycopg[binary]" \
+    pydantic-settings \
+    python-multipart \
+    python-dotenv
 
 COPY app ./app
 
@@ -5870,8 +5762,8 @@ server {
 
 
 === SUMMARY ===
-included: 79
+included: 78
 skipped(binary): 0
 skipped(size): 0
 skipped(ext): 0
-totalBytes(approx): 183797
+totalBytes(approx): 179705

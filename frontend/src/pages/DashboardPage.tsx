@@ -3,7 +3,7 @@ import { client } from '../api/client'
 
 export function DashboardPage() {
   const [health, setHealth] = useState<string>('loading')
-  const [meta, setMeta] = useState<Record<string, string>>({})
+  const [meta, setMeta] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
     client.health().then((data) => setHealth(data.status)).catch(() => setHealth('error'))
