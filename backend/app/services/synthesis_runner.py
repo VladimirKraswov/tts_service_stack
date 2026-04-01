@@ -25,6 +25,7 @@ class SynthesisRunner:
     def __init__(self) -> None:
         self.preview_engine = get_preview_engine()
         self.tech_preprocessor = TechnicalPreprocessor()
+        self.general_preprocessor = TechnicalPreprocessor()
         self.literary_preprocessor = LiteraryPreprocessor()
 
     async def run_job(self, job_id: int) -> None:
@@ -61,8 +62,26 @@ class SynthesisRunner:
                 _append_log(job, "Начата обработка текста.")
                 db.commit()
 
-                preprocessor = self.literary_preprocessor if job.preprocess_profile == "literary" else self.tech_preprocessor
-                processed = preprocessor.process(db, original_text, dictionary_id=job.dictionary_id)
+                if job.preprocess_profile == "literary":
+                    processed = self.literary_preprocessor.process(
+                        db,
+                        original_text,
+                        dictionary_id=job.dictionary_id,
+                    )
+                elif job.preprocess_profile == "technical":
+                    processed = self.tech_preprocessor.process(
+                        db,
+                        original_text,
+                        dictionary_id=job.dictionary_id,
+                        profile="technical",
+                    )
+                else:
+                    processed = self.general_preprocessor.process(
+                        db,
+                        original_text,
+                        dictionary_id=job.dictionary_id,
+                        profile="general",
+                    )
 
                 processed_text_path.write_text(processed.processed_text, encoding="utf-8")
                 job.processed_text_path = str(processed_text_path)

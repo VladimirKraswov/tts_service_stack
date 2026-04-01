@@ -1,5 +1,6 @@
 export type DictionaryEntry = {
   id: number
+  dictionary_id: number
   source_text: string
   spoken_text: string
   note?: string | null
@@ -127,6 +128,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     throw new Error(await readError(response))
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    return (await response.text()) as T
   }
 
   return response.json() as Promise<T>
@@ -276,7 +286,6 @@ export const client = {
     }),
 
   listSynthesisJobs: () => api<SynthesisJob[]>('/api/v1/synthesis'),
-
   getSynthesisJob: (jobId: number) => api<SynthesisJob>(`/api/v1/synthesis/${jobId}`),
 
   createSynthesisJob: async (payload: {

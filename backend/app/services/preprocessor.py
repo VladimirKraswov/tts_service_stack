@@ -17,61 +17,80 @@ class ProcessedPayload:
     chunks: list[str]
 
 
+_ROMAN_ORDINALS = {
+    "I": "первая",
+    "II": "вторая",
+    "III": "третья",
+    "IV": "четвёртая",
+    "V": "пятая",
+    "VI": "шестая",
+    "VII": "седьмая",
+    "VIII": "восьмая",
+    "IX": "девятая",
+    "X": "десятая",
+}
+
+
 class TechnicalPreprocessor:
     def __init__(self) -> None:
-        # Standard technical replacements
-        self.tech_replacements = [
+        self.shared_replacements: list[tuple[str, str]] = [
+            (r"\bи\s+т\.\s*д\.", "и так далее"),
+            (r"\bи\s+т\.\s*п\.", "и тому подобное"),
+            (r"\bт\.\s*е\.", "то есть"),
+            (r"\bт\.\s*к\.", "так как"),
+            (r"\bт\.\s*д\.", "так далее"),
+            (r"\bт\.\s*п\.", "тому подобное"),
+            (r"№\s*(\d+)", r"номер \1"),
+        ]
+
+        self.tech_replacements: list[tuple[str, str]] = [
             (r"\bAPI\b", "эй пи ай"),
             (r"\bCLI\b", "си эл ай"),
             (r"\bJSON\b", "джейсон"),
             (r"\bHTTP\b", "эйч ти ти пи"),
             (r"\bHTTPS\b", "эйч ти ти пи эс"),
             (r"\bSQL\b", "эс кью эл"),
-            (r"\b(REST|RESTful)\b", "рест"),
+            (r"\bRESTful\b", "рестфул"),
+            (r"\bREST\b", "рест"),
             (r"\bCI/CD\b", "си ай си ди"),
-            (r"\bv(\d+)\.(\d+)\.(\d+)\b", r"версия \1.\2.\3"),
             (r"\bUI/UX\b", "ю ай ю икс"),
             (r"\bGPU\b", "джи пи ю"),
             (r"\bCPU\b", "си пи ю"),
+            (r"\bv(\d+)\.(\d+)\.(\d+)\b", r"версия \1.\2.\3"),
             (r"\bWebSocket\b", "веб сокет"),
             (r"\bFastAPI\b", "фаст эй пи ай"),
-            (r"\bPostgreSQL\b", "постгрес"),
+            (r"\bPostgreSQL\b", "постгрес кью эл"),
             (r"\bRedis\b", "редис"),
+            (r"\bDocker Compose\b", "докер компоуз"),
             (r"\bDocker\b", "докер"),
-            (r"\bReact\b", "ре акт"),
+            (r"\bReact\b", "реакт"),
             (r"\bTypeScript\b", "тайп скрипт"),
             (r"\bJavaScript\b", "джава скрипт"),
             (r"\bPython\b", "пайтон"),
             (r"\bGolang\b", "гоу лэнг"),
-            (r"\bJWT\b", "джи дабл ю ти"),
-            (r"\bOAuth\b", "о аус"),
-            (r"\bnginx\b", "энджиикс"),
+            (r"\bJWT\b", "джей дабл ю ти"),
+            (r"\bOAuth\b", "оу аут"),
+            (r"\bnginx\b", "энджин икс"),
         ]
 
-        # General/Literary replacements
-        self.literary_replacements = [
-            (r"\bт\.е\.", "то есть"),
-            (r"\bт\.к\.", "так как"),
-            (r"\bт\.д\.", "так далее"),
-            (r"\bт\.п\.", "тому подобное"),
-            (r"\bи т\.д\.", "и так далее"),
-            (r"\bи т\.п\.", "и тому подобное"),
-            (r"\bдр\.", "другие"),
-            (r"\bстр\.", "страница"),
-            (r"\bгл\.", "глава"),
-            (r"\bрис\.", "рисунок"),
-            (r"\bтабл\.", "таблица"),
-            (r"\bкв\.", "квартира"),
-            (r"\bд\.", "дом"),
-            (r"\bул\.", "улица"),
-            (r"\bпросп\.", "проспект"),
-            (r"\bпер\.", "переулок"),
-            (r"\bпос\.", "посёлок"),
-            (r"\bобл\.", "область"),
-            (r"\bим\.", "имени"),
-            (r"\bгг\.", "годы"),
-            (r"\bг\.", "город"),
-            (r"№", "номер"),
+        self.general_numeric_replacements: list[tuple[str, str]] = [
+            (r"(?<=\d)\s*кг\b", " килограмм"),
+            (r"(?<=\d)\s*г\b", " грамм"),
+            (r"(?<=\d)\s*см\b", " сантиметр"),
+            (r"(?<=\d)\s*мм\b", " миллиметр"),
+            (r"(?<=\d)\s*км\b", " километр"),
+            (r"(?<=\d)\s*м\b", " метр"),
+            (r"(?<=\d)\s*мс\b", " миллисекунд"),
+            (r"(?<=\d)\s*с\b", " секунд"),
+            (r"(?<=\d)\s*мин\b", " минут"),
+            (r"(?<=\d)\s*ч\b", " часов"),
+            (r"(?<=\d)\s*руб\.(?=\s|$)", " рублей"),
+            (r"(?<=\d)\s*коп\.(?=\s|$)", " копеек"),
+            (r"(?<=\d)\s*₽", " рублей"),
+            (r"(?<=\d)\s*%", " процентов"),
+            (r"(?<=\d)\s*млн\b", " миллионов"),
+            (r"(?<=\d)\s*млрд\b", " миллиардов"),
+            (r"(?<=\d)\s*тыс\.(?=\s|$)", " тысяч"),
         ]
 
     def process(
@@ -81,35 +100,30 @@ class TechnicalPreprocessor:
         dictionary_id: int | None = None,
         profile: str = "general",
     ) -> ProcessedPayload:
-        # Stage 1: Normalize
-        text = self._normalize(text)
+        original_text = text
 
-        # Stage 2: Structural cleanup (code blocks, etc)
-        text = self._structural_cleanup(text, profile)
+        normalized = self._normalize(text)
+        normalized = self._structural_cleanup(normalized, profile)
+        normalized = self._apply_profile_rules(normalized, profile)
+        normalized = self._apply_dictionary(db, normalized, dictionary_id)
+        normalized = self._post_process(normalized)
+        chunks = self._chunk(normalized, profile)
 
-        # Stage 3: Profile-specific rules
-        text = self._apply_profile_rules(text, profile)
-
-        # Stage 4: Dictionary application
-        text = self._apply_dictionary(db, text, dictionary_id)
-
-        # Stage 5: Post-processing cleanup
-        text = self._post_process(text)
-
-        # Stage 6: Chunking
-        chunks = self._chunk(text, profile)
-
-        return ProcessedPayload(original_text=text, processed_text=text, chunks=chunks)
+        return ProcessedPayload(
+            original_text=original_text,
+            processed_text=normalized,
+            chunks=chunks,
+        )
 
     def _normalize(self, text: str) -> str:
         text = unicodedata.normalize("NFKC", text)
         text = text.replace("\u00A0", " ")
-        # Normalize quotes and dashes
-        text = text.replace("«", "\"").replace("»", "\"").replace("„", "\"").replace("“", "\"")
-        text = text.replace("—", " - ").replace("–", " - ").replace("−", " - ")
+        text = text.replace("«", '"').replace("»", '"').replace("„", '"').replace("“", '"').replace("”", '"')
+        text = text.replace("–", "—").replace("−", "-")
 
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\r\n?", "\n", text)
+        text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
@@ -117,10 +131,7 @@ class TechnicalPreprocessor:
         if profile == "technical":
             text = self._rewrite_code(text)
 
-        # Dialogue handling: replace leading dash with something more TTS friendly if needed
-        # Or just ensure it has space
-        text = re.sub(r"^(\s*)-\s+", r"\1— ", text, flags=re.MULTILINE)
-
+        text = re.sub(r"(^|\n)-\s+", r"\1— ", text)
         return text
 
     def _rewrite_code(self, text: str) -> str:
@@ -151,89 +162,85 @@ class TechnicalPreprocessor:
             "[": " открывающая квадратная скобка ",
             "]": " закрывающая квадратная скобка ",
         }
+
         for src, dst in replacements.items():
             code = code.replace(src, dst)
+
         code = re.sub(r"([a-z])([A-Z])", r"\1 \2", code)
-        return re.sub(r"\s+", " ", code).strip()
+        code = re.sub(r"\s+", " ", code)
+        return code.strip()
 
-    def _apply_profile_rules(self, text: str, profile: str) -> str:
-        # Generic rules (shared across profiles, mostly common abbreviations)
-        for pattern, replacement in self.literary_replacements:
+    def _apply_regex(self, text: str) -> str:
+        return self._apply_shared_rules(text)
+
+    def _apply_shared_rules(self, text: str) -> str:
+        for pattern, replacement in self.shared_replacements:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-
-        if profile == "literary":
-            text = self._apply_literary_rules(text)
-        elif profile == "technical":
-            text = self._apply_technical_rules(text)
-        elif profile == "general":
-            text = self._apply_general_rules(text)
-
         return text
 
+    def _apply_profile_rules(self, text: str, profile: str) -> str:
+        text = self._apply_shared_rules(text)
+
+        if profile == "literary":
+            return self._apply_literary_rules(text)
+        if profile == "technical":
+            return self._apply_technical_rules(text)
+        return self._apply_general_rules(text)
+
     def _apply_literary_rules(self, text: str) -> str:
-        # Handle Chapter headings: Глава I -> Глава первая
-        def replace_chapter(match: re.Match[str]) -> str:
+        def replace_heading(match: re.Match[str]) -> str:
             prefix = match.group(1)
-            num_roman = match.group(2).upper()
-            roman_to_ru = {
-                "I": "первая", "II": "вторая", "III": "третья", "IV": "четвертая",
-                "V": "пятая", "VI": "шестая", "VII": "седьмая", "VIII": "восьмая",
-                "IX": "девятая", "X": "десятая",
-            }
-            return f"{prefix} {roman_to_ru.get(num_roman, num_roman)}"
+            roman = match.group(2).upper()
+            return f"{prefix} {_ROMAN_ORDINALS.get(roman, roman)}"
 
-        text = re.sub(r"\b(Глава|Часть)\s+([IVXLCDM]+)\b", replace_chapter, text, flags=re.IGNORECASE)
+        text = re.sub(r"\b(Глава|Часть)\s+([IVX]+)\b", replace_heading, text, flags=re.IGNORECASE)
 
-        # Handle initials: А. С. Пушкин -> А.С. Пушкин (keeping it together)
-        text = re.sub(r"\b([А-Я])\.\s+([А-Я])\.\s+([А-Я][а-я]+)", r"\1. \2. \3", text)
+        text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2 \3", text)
+        text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2", text)
 
+        text = re.sub(r"\s*—\s*", " — ", text)
         return text
 
     def _apply_technical_rules(self, text: str) -> str:
-        # Apply tech replacements first
+        text = re.sub(r"(?<!\w)(/[A-Za-z0-9._-]+)+", self._speak_path, text)
+
         for pattern, replacement in self.tech_replacements:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
-        # Handle paths
-        text = re.sub(r"(/[a-zA-Z0-9._-]+)+", lambda m: m.group(0).replace("/", " слэш "), text)
-
         return text
 
-    def _apply_general_rules(self, text: str) -> str:
-        # Units and money
-        units = [
-            (r"\bкг\b", "килограмм"),
-            (r"\bсм\b", "сантиметр"),
-            (r"\bмм\b", "миллиметр"),
-            (r"\bкм\b", "километр"),
-            (r"\bмс\b", "миллисекунда"),
-            (r"\bс\b", "секунда"),
-            (r"\bмин\b", "минута"),
-            (r"\bч\b", "час"),
-            (r"\bруб\.", "рубль"),
-            (r"₽", "рубль"),
-            (r"%", "процент"),
-        ]
-        for pattern, replacement in units:
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    def _speak_path(self, match: re.Match[str]) -> str:
+        path = match.group(0)
+        parts = [part for part in path.split("/") if part]
+        if not parts:
+            return "слэш"
 
+        spoken: list[str] = []
+        for part in parts:
+            spoken.append("слэш")
+            spoken.append(part)
+        return " ".join(spoken)
+
+    def _apply_general_rules(self, text: str) -> str:
+        for pattern, replacement in self.general_numeric_replacements:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
         return text
 
     def _apply_dictionary(self, db: Session, text: str, dictionary_id: int | None) -> str:
         dictionary = None
         if dictionary_id is not None:
             dictionary = db.get(Dictionary, dictionary_id)
+
         if dictionary is None:
             dictionary = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
 
         if dictionary is None or not dictionary.entries:
             return text
 
-        # Sort by priority then by length descending
         entries = sorted(
             dictionary.entries,
-            key=lambda e: (e.priority, len(e.source_text)),
-            reverse=True
+            key=lambda entry: (entry.priority, len(entry.source_text)),
+            reverse=True,
         )
 
         for entry in entries:
@@ -248,51 +255,61 @@ class TechnicalPreprocessor:
 
             flags = 0 if entry.case_sensitive else re.IGNORECASE
             text = re.compile(pattern, flags).sub(entry.spoken_text, text)
+
         return text
 
     def _post_process(self, text: str) -> str:
-        # Cleanup extra spaces
-        text = re.sub(r" {2,}", " ", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r" *\n *", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"\s+([,.;:!?])", r"\1", text)
         return text.strip()
 
     def _chunk(self, text: str, profile: str) -> list[str]:
-        # Improved chunking logic: respect paragraphs first
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+        if not paragraphs:
+            return [text.strip()] if text.strip() else []
 
-        target = 180 if profile == "technical" else 250
-        max_len = 260 if profile == "technical" else 400
+        if profile == "technical":
+            target = 180
+            max_len = 260
+        elif profile == "literary":
+            target = 260
+            max_len = 380
+        else:
+            target = 220
+            max_len = 340
 
-        all_chunks: list[str] = []
+        chunks: list[str] = []
 
         for paragraph in paragraphs:
-            segments = [s.strip() for s in re.split(r"(?<=[.!?;])\s+(?=[А-ЯA-Z\"—])", paragraph) if s.strip()]
-            if not segments:
-                segments = [paragraph]
+            sentences = [
+                part.strip()
+                for part in re.split(r"(?<=[.!?…])\s+(?=[A-ZА-ЯЁ\"(—])", paragraph)
+                if part.strip()
+            ]
+            if not sentences:
+                sentences = [paragraph]
 
             buffer = ""
-            for segment in segments:
-                if not buffer:
-                    buffer = segment
-                    continue
-
-                candidate = f"{buffer} {segment}".strip()
+            for sentence in sentences:
+                candidate = f"{buffer} {sentence}".strip() if buffer else sentence
                 if len(candidate) <= target:
                     buffer = candidate
                 else:
-                    all_chunks.append(buffer)
-                    buffer = segment
+                    if buffer:
+                        chunks.append(buffer)
+                    buffer = sentence
 
             if buffer:
-                all_chunks.append(buffer)
+                chunks.append(buffer)
 
-        # Final safety split for oversized chunks
         final_chunks: list[str] = []
-        for chunk in all_chunks:
+        for chunk in chunks:
             if len(chunk) <= max_len:
                 final_chunks.append(chunk)
                 continue
 
-            # Split by words if still too long
             words = chunk.split()
             current: list[str] = []
             for word in words:
@@ -305,5 +322,9 @@ class TechnicalPreprocessor:
 
             if current:
                 final_chunks.append(" ".join(current))
+
+        if len(final_chunks) >= 2 and len(final_chunks[-1]) < 40:
+            final_chunks[-2] = f"{final_chunks[-2]} {final_chunks[-1]}".strip()
+            final_chunks.pop()
 
         return [chunk for chunk in final_chunks if chunk]

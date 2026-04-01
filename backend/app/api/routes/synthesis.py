@@ -33,10 +33,17 @@ def _validate_text_upload(file: UploadFile) -> None:
 
 
 def _resolve_default_dictionary_id(db: Session, preprocess_profile: str) -> int | None:
-    if preprocess_profile == "literary":
-        literary_dict = db.scalar(select(Dictionary).where(Dictionary.slug == "default-literary"))
-        if literary_dict is not None:
-            return literary_dict.id
+    slug_by_profile = {
+        "literary": "default-literary",
+        "technical": "default-tech",
+        "general": "default-general-ru",
+    }
+
+    preferred_slug = slug_by_profile.get(preprocess_profile)
+    if preferred_slug:
+        dictionary = db.scalar(select(Dictionary).where(Dictionary.slug == preferred_slug))
+        if dictionary is not None:
+            return dictionary.id
 
     default_dict = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
     return default_dict.id if default_dict is not None else None

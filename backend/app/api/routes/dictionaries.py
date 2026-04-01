@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -26,7 +26,11 @@ preprocessor = TechnicalPreprocessor()
 
 @router.get('', response_model=list[DictionaryRead])
 def list_dictionaries(db: Session = Depends(get_db)) -> list[Dictionary]:
-    return list(db.scalars(select(Dictionary).order_by(Dictionary.priority.desc(), Dictionary.id)))
+    return list(
+        db.scalars(
+            select(Dictionary).order_by(Dictionary.priority.desc(), Dictionary.is_default.desc(), Dictionary.id)
+        )
+    )
 
 
 @router.post('', response_model=DictionaryRead)
@@ -52,11 +56,11 @@ def update_dictionary(dictionary_id: int, payload: DictionaryUpdate, db: Session
     if dictionary is None:
         raise HTTPException(status_code=404, detail='Dictionary not found')
 
-    if not dictionary.is_editable and any(
-        v is not None
-        for k, v in payload.model_dump(exclude={'priority', 'is_default'}).items()
-    ):
-        raise HTTPException(status_code=403, detail='Dictionary is not editable')
+    if not dictionary.is_editable:
+        restricted_fields = {'name', 'slug', 'description', 'domain', 'language', 'is_system', 'is_editable'}
+        requested = payload.model_dump(exclude_unset=True)
+        if any(field in requested for field in restricted_fields):
+            raise HTTPException(status_code=403, detail='Dictionary is not editable')
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(dictionary, field, value)
@@ -67,7 +71,7 @@ def update_dictionary(dictionary_id: int, payload: DictionaryUpdate, db: Session
 
 
 @router.delete('/{dictionary_id}', status_code=204)
-def delete_dictionary(dictionary_id: int, db: Session = Depends(get_db)):
+def delete_dictionary(dictionary_id: int, db: Session = Depends(get_db)) -> Response:
     dictionary = db.get(Dictionary, dictionary_id)
     if dictionary is None:
         raise HTTPException(status_code=404, detail='Dictionary not found')
@@ -76,44 +80,7 @@ def delete_dictionary(dictionary_id: int, db: Session = Depends(get_db)):
 
     db.delete(dictionary)
     db.commit()
-    return
-
-
-@router.post('/{dictionary_id}/entries', response_model=DictionaryEntryRead)
-def add_entry(dictionary_id: int, payload: DictionaryEntryCreate, db: Session = Depends(get_db)) -> DictionaryEntry:
-    dictionary = db.get(Dictionary, dictionary_id)
-    if dictionary is None:
-        raise HTTPException(status_code=404, detail='Dictionary not found')
-    if not dictionary.is_editable:
-        raise HTTPException(status_code=403, detail='Dictionary is not editable')
-
-    entry = DictionaryEntry(dictionary_id=dictionary_id, **payload.model_dump())
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
-    return entry
-
-
-@router.patch('/{dictionary_id}/entries/{entry_id}', response_model=DictionaryEntryRead)
-def update_entry(
-    dictionary_id: int, entry_id: int, payload: DictionaryEntryUpdate, db: Session = Depends(get_db)
-) -> DictionaryEntry:
-    dictionary = db.get(Dictionary, dictionary_id)
-    if dictionary is None:
-        raise HTTPException(status_code=404, detail='Dictionary not found')
-    if not dictionary.is_editable:
-        raise HTTPException(status_code=403, detail='Dictionary is not editable')
-
-    entry = db.get(DictionaryEntry, entry_id)
-    if entry is None or entry.dictionary_id != dictionary_id:
-        raise HTTPException(status_code=404, detail='Entry not found')
-
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(entry, field, value)
-
-    db.commit()
-    db.refresh(entry)
-    return entry
+    return Response(status_code=204)
 
 
 @router.get('/{dictionary_id}/entries', response_model=DictionaryEntryPagination)
@@ -137,7 +104,7 @@ def list_entries(
         )
         stmt = stmt.where(search_filter)
 
-    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     items = list(
         db.scalars(
             stmt.order_by(DictionaryEntry.priority.desc(), DictionaryEntry.source_text)
@@ -157,8 +124,48 @@ def list_entries(
     }
 
 
+@router.post('/{dictionary_id}/entries', response_model=DictionaryEntryRead)
+def add_entry(dictionary_id: int, payload: DictionaryEntryCreate, db: Session = Depends(get_db)) -> DictionaryEntry:
+    dictionary = db.get(Dictionary, dictionary_id)
+    if dictionary is None:
+        raise HTTPException(status_code=404, detail='Dictionary not found')
+    if not dictionary.is_editable:
+        raise HTTPException(status_code=403, detail='Dictionary is not editable')
+
+    entry = DictionaryEntry(dictionary_id=dictionary_id, **payload.model_dump())
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.patch('/{dictionary_id}/entries/{entry_id}', response_model=DictionaryEntryRead)
+def update_entry(
+    dictionary_id: int,
+    entry_id: int,
+    payload: DictionaryEntryUpdate,
+    db: Session = Depends(get_db),
+) -> DictionaryEntry:
+    dictionary = db.get(Dictionary, dictionary_id)
+    if dictionary is None:
+        raise HTTPException(status_code=404, detail='Dictionary not found')
+    if not dictionary.is_editable:
+        raise HTTPException(status_code=403, detail='Dictionary is not editable')
+
+    entry = db.get(DictionaryEntry, entry_id)
+    if entry is None or entry.dictionary_id != dictionary_id:
+        raise HTTPException(status_code=404, detail='Entry not found')
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(entry, field, value)
+
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
 @router.delete('/{dictionary_id}/entries/{entry_id}', status_code=204)
-def delete_entry(dictionary_id: int, entry_id: int, db: Session = Depends(get_db)):
+def delete_entry(dictionary_id: int, entry_id: int, db: Session = Depends(get_db)) -> Response:
     dictionary = db.get(Dictionary, dictionary_id)
     if dictionary is None:
         raise HTTPException(status_code=404, detail='Dictionary not found')
@@ -171,35 +178,53 @@ def delete_entry(dictionary_id: int, entry_id: int, db: Session = Depends(get_db
 
     db.delete(entry)
     db.commit()
-    return
+    return Response(status_code=204)
 
 
 @router.post('/{dictionary_id}/preview', response_model=PronunciationPreviewResponse)
 def preview_pronunciation(
-    dictionary_id: int, payload: PronunciationPreviewRequest, db: Session = Depends(get_db)
+    dictionary_id: int,
+    payload: PronunciationPreviewRequest,
+    db: Session = Depends(get_db),
 ) -> PronunciationPreviewResponse:
-    processed = preprocessor.process(db, payload.text, dictionary_id=dictionary_id)
+    processed = preprocessor.process(db, payload.text, dictionary_id=dictionary_id, profile='general')
     return PronunciationPreviewResponse(original_text=payload.text, processed_text=processed.processed_text)
 
 
 @router.get('/{dictionary_id}/export', response_model=DictionaryExport)
-def export_dictionary(dictionary_id: int, db: Session = Depends(get_db)) -> dict:
+def export_dictionary(dictionary_id: int, db: Session = Depends(get_db)) -> DictionaryExport:
     dictionary = db.get(Dictionary, dictionary_id)
     if dictionary is None:
         raise HTTPException(status_code=404, detail='Dictionary not found')
 
-    entries = list(db.scalars(select(DictionaryEntry).where(DictionaryEntry.dictionary_id == dictionary_id)))
-    result = {
-        'version': 1,
-        'name': dictionary.name,
-        'slug': dictionary.slug,
-        'description': dictionary.description,
-        'is_default': dictionary.is_default,
-        'domain': dictionary.domain,
-        'language': dictionary.language,
-        'entries': entries,
-    }
-    return result
+    entries = list(
+        db.scalars(
+            select(DictionaryEntry)
+            .where(DictionaryEntry.dictionary_id == dictionary_id)
+            .order_by(DictionaryEntry.priority.desc(), DictionaryEntry.source_text)
+        )
+    )
+
+    return DictionaryExport(
+        version=1,
+        name=dictionary.name,
+        slug=dictionary.slug,
+        description=dictionary.description,
+        is_default=dictionary.is_default,
+        domain=dictionary.domain,
+        language=dictionary.language,
+        entries=[
+            DictionaryEntryCreate(
+                source_text=entry.source_text,
+                spoken_text=entry.spoken_text,
+                note=entry.note,
+                case_sensitive=entry.case_sensitive,
+                is_enabled=entry.is_enabled,
+                priority=entry.priority,
+            )
+            for entry in entries
+        ],
+    )
 
 
 @router.post('/{dictionary_id}/import', response_model=DictionaryImportResponse)
@@ -217,7 +242,7 @@ def import_into_dictionary(
 
     existing_entries = {
         entry.source_text: entry
-        for entry in db.scalars(select(DictionaryEntry).where(DictionaryEntry.dictionary_id == dictionary_id))
+        for entry in db.scalars(select(DictionaryEntry).where(DictionaryEntry.dictionary_id == dictionary_id)).all()
     }
 
     created_count = 0
@@ -232,7 +257,7 @@ def import_into_dictionary(
 
     for entry_data in payload.entries:
         existing = existing_entries.get(entry_data.source_text)
-        if existing:
+        if existing is not None:
             if mode == ImportConflictMode.MERGE:
                 existing.spoken_text = entry_data.spoken_text
                 existing.note = entry_data.note
@@ -240,10 +265,11 @@ def import_into_dictionary(
                 existing.is_enabled = entry_data.is_enabled
                 existing.priority = entry_data.priority
                 updated_count += 1
-        else:
-            new_entry = DictionaryEntry(dictionary_id=dictionary_id, **entry_data.model_dump())
-            db.add(new_entry)
-            created_count += 1
+            continue
+
+        new_entry = DictionaryEntry(dictionary_id=dictionary_id, **entry_data.model_dump())
+        db.add(new_entry)
+        created_count += 1
 
     db.commit()
     return {
@@ -260,10 +286,10 @@ def import_full_dictionary(
     mode: ImportConflictMode = Query(ImportConflictMode.MERGE),
     db: Session = Depends(get_db),
 ) -> dict:
-    dictionary = db.scalar(select(Dictionary).where(Dictionary.slug == payload.slug))
+    existing_dictionary = db.scalar(select(Dictionary).where(Dictionary.slug == payload.slug))
 
-    if dictionary:
-        return import_into_dictionary(dictionary.id, payload, mode, db)
+    if existing_dictionary is not None:
+        return import_into_dictionary(existing_dictionary.id, payload, mode, db)
 
     dictionary = Dictionary(
         name=payload.name,
@@ -280,8 +306,7 @@ def import_full_dictionary(
 
     created_count = 0
     for entry_data in payload.entries:
-        new_entry = DictionaryEntry(dictionary_id=dictionary.id, **entry_data.model_dump())
-        db.add(new_entry)
+        db.add(DictionaryEntry(dictionary_id=dictionary.id, **entry_data.model_dump()))
         created_count += 1
 
     db.commit()

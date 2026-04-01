@@ -17,14 +17,14 @@ settings = get_settings()
 @dataclass(slots=True)
 class CachedDictionary:
     loaded_at: float
-    entries: list[tuple[str, str]]
+    entries: list[tuple[str, str, bool, int]]
 
 
 class LiveDictionaryCache:
     def __init__(self) -> None:
         self._cache: dict[str, CachedDictionary] = {}
 
-    def get_entries(self, db: Session, dictionary_id: int | None) -> list[tuple[str, str]]:
+    def get_entries(self, db: Session, dictionary_id: int | None) -> list[tuple[str, str, bool, int]]:
         cache_key = f'dict:{dictionary_id or "default"}'
         now = time.monotonic()
 
@@ -40,14 +40,20 @@ class LiveDictionaryCache:
             dictionary = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
 
         if dictionary is None:
-            entries: list[tuple[str, str]] = []
+            entries: list[tuple[str, str, bool, int]] = []
         else:
             rows = db.scalars(
-                select(DictionaryEntry).where(DictionaryEntry.dictionary_id == dictionary.id)
+                select(DictionaryEntry).where(
+                    DictionaryEntry.dictionary_id == dictionary.id,
+                    DictionaryEntry.is_enabled.is_(True),
+                )
             ).all()
             entries = sorted(
-                [(row.source_text, row.spoken_text) for row in rows],
-                key=lambda item: len(item[0]),
+                [
+                    (row.source_text, row.spoken_text, row.case_sensitive, row.priority)
+                    for row in rows
+                ],
+                key=lambda item: (item[3], len(item[0])),
                 reverse=True,
             )
 
@@ -68,9 +74,12 @@ class LiveTextPreprocessor:
             (r"\bHTTP\b", "эйч ти ти пи"),
             (r"\bHTTPS\b", "эйч ти ти пи эс"),
             (r"\bSQL\b", "эс кью эл"),
-            (r"\b(REST|RESTful)\b", "рест"),
+            (r"\bRESTful\b", "рестфул"),
+            (r"\bREST\b", "рест"),
             (r"\bUI/UX\b", "ю ай ю икс"),
             (r"\bCI/CD\b", "си ай си ди"),
+            (r"\bCPU\b", "си пи ю"),
+            (r"\bGPU\b", "джи пи ю"),
             (r"\buseEffect\b", "юз эффект"),
             (r"\buseState\b", "юз стейт"),
             (r"\b__init__\b", "андерскор андерскор инит андерскор андерскор"),
@@ -99,12 +108,14 @@ class LiveTextPreprocessor:
         if not entries:
             return text
 
-        for source_text, spoken_text in entries:
+        for source_text, spoken_text, case_sensitive, _priority in entries:
             pattern = re.escape(source_text)
             if source_text and source_text[0].isalnum():
                 pattern = r"\b" + pattern
             if source_text and source_text[-1].isalnum():
                 pattern = pattern + r"\b"
-            text = re.compile(pattern, re.IGNORECASE).sub(spoken_text, text)
+
+            flags = 0 if case_sensitive else re.IGNORECASE
+            text = re.compile(pattern, flags).sub(spoken_text, text)
 
         return text

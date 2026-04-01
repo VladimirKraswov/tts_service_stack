@@ -1,11 +1,70 @@
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models.base import Base
 from app.models.dictionary import Dictionary, DictionaryEntry
-from app.models.synthesis import SynthesisJob
 from app.models.voice import VoiceProfile
+
+
+def _ddl_map() -> dict[str, dict[str, str]]:
+    dialect = engine.dialect.name
+
+    if dialect == 'sqlite':
+        return {
+            'dictionaries': {
+                'domain': "VARCHAR(50) NOT NULL DEFAULT 'general'",
+                'language': "VARCHAR(10) NOT NULL DEFAULT 'ru'",
+                'is_system': "BOOLEAN NOT NULL DEFAULT 0",
+                'is_editable': "BOOLEAN NOT NULL DEFAULT 1",
+                'priority': "INTEGER NOT NULL DEFAULT 0",
+                'created_at': "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+                'updated_at': "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            },
+            'dictionary_entries': {
+                'case_sensitive': "BOOLEAN NOT NULL DEFAULT 0",
+                'is_enabled': "BOOLEAN NOT NULL DEFAULT 1",
+                'priority': "INTEGER NOT NULL DEFAULT 0",
+                'created_at': "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+                'updated_at': "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            },
+        }
+
+    return {
+        'dictionaries': {
+            'domain': "VARCHAR(50) NOT NULL DEFAULT 'general'",
+            'language': "VARCHAR(10) NOT NULL DEFAULT 'ru'",
+            'is_system': "BOOLEAN NOT NULL DEFAULT FALSE",
+            'is_editable': "BOOLEAN NOT NULL DEFAULT TRUE",
+            'priority': "INTEGER NOT NULL DEFAULT 0",
+            'created_at': "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            'updated_at': "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        },
+        'dictionary_entries': {
+            'case_sensitive': "BOOLEAN NOT NULL DEFAULT FALSE",
+            'is_enabled': "BOOLEAN NOT NULL DEFAULT TRUE",
+            'priority': "INTEGER NOT NULL DEFAULT 0",
+            'created_at': "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            'updated_at': "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        },
+    }
+
+
+def _ensure_column(table_name: str, column_name: str, ddl: str) -> None:
+    inspector = inspect(engine)
+    columns = {column['name'] for column in inspector.get_columns(table_name)}
+    if column_name in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}'))
+
+
+def _ensure_dictionary_schema() -> None:
+    ddl = _ddl_map()
+    for table_name, columns in ddl.items():
+        for column_name, column_ddl in columns.items():
+            _ensure_column(table_name, column_name, column_ddl)
 
 
 def _ensure_voice(
@@ -48,8 +107,10 @@ def _ensure_dictionary(
     description: str,
     is_default: bool,
     domain: str = 'general',
+    language: str = 'ru',
     is_system: bool = True,
     is_editable: bool = False,
+    priority: int = 0,
     entries: list[tuple[str, str, str]],
 ) -> Dictionary:
     dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == slug))
@@ -60,8 +121,10 @@ def _ensure_dictionary(
             description=description,
             is_default=is_default,
             domain=domain,
+            language=language,
             is_system=is_system,
             is_editable=is_editable,
+            priority=priority,
         )
         session.add(dictionary)
         session.flush()
@@ -70,8 +133,10 @@ def _ensure_dictionary(
         dictionary.description = description
         dictionary.is_default = is_default
         dictionary.domain = domain
+        dictionary.language = language
         dictionary.is_system = is_system
         dictionary.is_editable = is_editable
+        dictionary.priority = priority
         session.flush()
 
     existing_entries = {
@@ -90,6 +155,9 @@ def _ensure_dictionary(
                     source_text=source_text,
                     spoken_text=spoken_text,
                     note=note,
+                    case_sensitive=False,
+                    is_enabled=True,
+                    priority=0,
                 )
             )
         else:
@@ -102,6 +170,7 @@ def _ensure_dictionary(
 def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
+    _ensure_dictionary_schema()
 
     with SessionLocal() as session:
         _ensure_dictionary(
@@ -111,6 +180,7 @@ def init_db() -> None:
             description='Базовый словарь произношения технических терминов.',
             is_default=True,
             domain='technical',
+            priority=100,
             entries=[
                 ('WebSocket', 'веб сокет', 'Технический термин'),
                 ('FastAPI', 'фаст эй пи ай', 'Фреймворк'),
@@ -122,7 +192,7 @@ def init_db() -> None:
                 ('SQL', 'эс кью эл', 'Язык запросов'),
                 ('CLI', 'си эл ай', 'Интерфейс'),
                 ('UI', 'ю ай', 'Интерфейс'),
-                ('UX', 'ю икс', 'Опыт'),
+                ('UX', 'ю икс', 'Пользовательский опыт'),
                 ('UI/UX', 'ю ай ю икс', 'Дизайн'),
                 ('CI/CD', 'си ай си ди', 'Процесс'),
                 ('CPU', 'си пи ю', 'Процессор'),
@@ -132,17 +202,17 @@ def init_db() -> None:
                 ('Docker', 'докер', 'Контейнеризация'),
                 ('Docker Compose', 'докер компоуз', 'Инструмент'),
                 ('Redis', 'редис', 'Хранилище'),
-                ('PostgreSQL', 'постгрес', 'База данных'),
-                ('React', 'ре акт', 'Библиотека'),
+                ('PostgreSQL', 'постгрес кью эл', 'База данных'),
+                ('React', 'реакт', 'Библиотека'),
                 ('TypeScript', 'тайп скрипт', 'Язык программирования'),
                 ('JavaScript', 'джава скрипт', 'Язык программирования'),
                 ('Python', 'пайтон', 'Язык программирования'),
                 ('Golang', 'гоу лэнг', 'Язык программирования'),
                 ('API Gateway', 'эй пи ай гейтвей', 'Архитектура'),
-                ('JWT', 'джи дабл ю ти', 'Токен'),
-                ('OAuth', 'о аус', 'Авторизация'),
+                ('JWT', 'джей дабл ю ти', 'Токен'),
+                ('OAuth', 'оу аут', 'Авторизация'),
                 ('protobuf', 'протобаф', 'Сериализация'),
-                ('nginx', 'энджиикс', 'Сервер'),
+                ('nginx', 'энджин икс', 'Сервер'),
             ],
         )
 
@@ -153,14 +223,16 @@ def init_db() -> None:
             description='Базовый словарь для художественного чтения.',
             is_default=False,
             domain='literary',
+            priority=90,
             entries=[
+                ('А. С. Пушкин', 'Александр Сергеевич Пушкин', 'Имя'),
+                ('Л. Н. Толстой', 'Лев Николаевич Толстой', 'Имя'),
+                ('Ф. М. Достоевский', 'Фёдор Михайлович Достоевский', 'Имя'),
                 ('гл.', 'глава', 'Сокращение'),
                 ('стр.', 'страница', 'Сокращение'),
                 ('рис.', 'рисунок', 'Сокращение'),
                 ('табл.', 'таблица', 'Сокращение'),
-                ('А. С. Пушкин', 'Александр Сергеевич Пушкин', 'Имя'),
-                ('Л. Н. Толстой', 'Лев Николаевич Толстой', 'Имя'),
-                ('Ф. М. Достоевский', 'Фёдор Михайлович Достоевский', 'Имя'),
+                ('им.', 'имени', 'Сокращение'),
             ],
         )
 
@@ -171,6 +243,7 @@ def init_db() -> None:
             description='Общий словарь сокращений русского языка.',
             is_default=False,
             domain='general',
+            priority=80,
             entries=[
                 ('т.е.', 'то есть', 'Сокращение'),
                 ('т.к.', 'так как', 'Сокращение'),
@@ -179,6 +252,10 @@ def init_db() -> None:
                 ('и т.д.', 'и так далее', 'Сокращение'),
                 ('и т.п.', 'и тому подобное', 'Сокращение'),
                 ('др.', 'другие', 'Сокращение'),
+                ('стр.', 'страница', 'Сокращение'),
+                ('гл.', 'глава', 'Сокращение'),
+                ('рис.', 'рисунок', 'Сокращение'),
+                ('табл.', 'таблица', 'Сокращение'),
                 ('кв.', 'квартира', 'Сокращение'),
                 ('д.', 'дом', 'Сокращение'),
                 ('ул.', 'улица', 'Сокращение'),
@@ -188,13 +265,31 @@ def init_db() -> None:
                 ('обл.', 'область', 'Сокращение'),
                 ('им.', 'имени', 'Сокращение'),
                 ('гг.', 'годы', 'Сокращение'),
-                ('г.', 'город', 'Сокращение'),
                 ('№', 'номер', 'Знак номера'),
                 ('млн', 'миллионов', 'Числительное'),
                 ('млрд', 'миллиардов', 'Числительное'),
                 ('тыс.', 'тысяч', 'Числительное'),
                 ('руб.', 'рублей', 'Валюта'),
                 ('коп.', 'копеек', 'Валюта'),
+            ],
+        )
+
+        _ensure_dictionary(
+            session,
+            name='Default Abbreviations RU',
+            slug='default-abbreviations-ru',
+            description='Справочный словарь русских сокращений.',
+            is_default=False,
+            domain='abbreviations',
+            priority=70,
+            entries=[
+                ('т.е.', 'то есть', 'Сокращение'),
+                ('т.к.', 'так как', 'Сокращение'),
+                ('т.д.', 'так далее', 'Сокращение'),
+                ('т.п.', 'тому подобное', 'Сокращение'),
+                ('др.', 'другие', 'Сокращение'),
+                ('и др.', 'и другие', 'Сокращение'),
+                ('и пр.', 'и прочее', 'Сокращение'),
             ],
         )
 
@@ -257,6 +352,7 @@ def init_db() -> None:
             )
 
         session.commit()
+
 
 if __name__ == '__main__':
     init_db()

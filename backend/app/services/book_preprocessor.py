@@ -32,16 +32,19 @@ _ROMAN_CHAPTERS = {
 
 class LiteraryPreprocessor(TechnicalPreprocessor):
     def process(self, db: Session, text: str, dictionary_id: int | None = None) -> BookProcessedPayload:
+        original_text = text
+
         normalized = self._normalize_literary(text)
         normalized = self._apply_literary_rules(normalized)
         normalized = self._apply_regex(normalized)
         normalized = self._apply_dictionary(db, normalized, dictionary_id)
+        normalized = self._post_process(normalized)
 
         chunks = self._chunk_literary(normalized)
-        processed_text = normalized.replace(" <PARA_BREAK> ", "\n\n").strip()
+        processed_text = normalized.replace("<PARA_BREAK>", "\n\n").strip()
 
         return BookProcessedPayload(
-            original_text=text,
+            original_text=original_text,
             processed_text=processed_text,
             chunks=chunks,
         )
@@ -53,6 +56,7 @@ class LiteraryPreprocessor(TechnicalPreprocessor):
         text = text.replace("–", "—")
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\r\n?", "\n", text)
+        text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
@@ -66,43 +70,30 @@ class LiteraryPreprocessor(TechnicalPreprocessor):
 
         text = re.sub(r"\bГлава\s+([IVX]+)\b", chapter_repl, text, flags=re.IGNORECASE)
 
-        replacement_patterns: list[tuple[str, str]] = [
-            (r"\bи\s+т\.\s*д\.\b", "и так далее"),
-            (r"\bи\s+т\.\s*п\.\b", "и тому подобное"),
-            (r"\bт\.\s*е\.\b", "то есть"),
-            (r"\bт\.\s*к\.\b", "так как"),
-            (r"\bт\.\s*д\.\b", "так далее"),
-            (r"\bт\.\s*п\.\b", "тому подобное"),
-            (r"\bгг\.\b", "годы"),
-            (r"\bг\.\b", "город"),
-            (r"\bул\.\b", "улица"),
-            (r"\bим\.\b", "имени"),
-            (r"\bгл\.\b", "глава"),
-            (r"\bстр\.\b", "страница"),
-            (r"\bрис\.\b", "рисунок"),
-            (r"\bкв\.\b", "квартира"),
-            (r"\bпос\.\b", "посёлок"),
-            (r"\bд\.\b", "дом"),
-            (r"\bдр\.\b", "другие"),
+        replacements: list[tuple[str, str]] = [
+            (r"\bи\s+т\.\s*д\.", "и так далее"),
+            (r"\bи\s+т\.\s*п\.", "и тому подобное"),
+            (r"\bт\.\s*е\.", "то есть"),
+            (r"\bт\.\s*к\.", "так как"),
+            (r"\bт\.\s*д\.", "так далее"),
+            (r"\bт\.\s*п\.", "тому подобное"),
+            (r"\bгл\.", "глава"),
+            (r"\bстр\.", "страница"),
+            (r"\bрис\.", "рисунок"),
+            (r"\bтабл\.", "таблица"),
+            (r"\bим\.", "имени"),
+            (r"№\s*(\d+)", r"номер \1"),
         ]
 
-        for pattern, replacement in replacement_patterns:
+        for pattern, replacement in replacements:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
-        text = re.sub(r"№\s*(\d+)", r"номер \1", text)
-
-        # А. С. Пушкин -> А С Пушкин
         text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2 \3", text)
-        # А. Пушкин -> А Пушкин
         text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2", text)
 
-        # Маркер абзаца для chunking
         text = re.sub(r"\n\s*\n", " <PARA_BREAK> ", text)
-
-        # Нормализация тире в диалогах
         text = re.sub(r"\s*—\s*", " — ", text)
         text = re.sub(r"\s+", " ", text)
-
         return text.strip()
 
     def _chunk_literary(self, text: str) -> list[str]:
@@ -111,7 +102,8 @@ class LiteraryPreprocessor(TechnicalPreprocessor):
             return [text.replace("<PARA_BREAK>", "").strip()]
 
         chunks: list[str] = []
-        max_len = 260
+        max_len = 320
+        target = 260
 
         for paragraph in paragraphs:
             sentences = [s.strip() for s in re.split(r"(?<=[.!?…])\s+", paragraph) if s.strip()]
@@ -121,7 +113,7 @@ class LiteraryPreprocessor(TechnicalPreprocessor):
             buffer = ""
             for sentence in sentences:
                 candidate = f"{buffer} {sentence}".strip() if buffer else sentence
-                if len(candidate) <= max_len:
+                if len(candidate) <= target:
                     buffer = candidate
                 else:
                     if buffer:
@@ -131,4 +123,27 @@ class LiteraryPreprocessor(TechnicalPreprocessor):
             if buffer:
                 chunks.append(buffer)
 
-        return [chunk.replace("<PARA_BREAK>", "").strip() for chunk in chunks if chunk.strip()]
+        final_chunks: list[str] = []
+        for chunk in chunks:
+            if len(chunk) <= max_len:
+                final_chunks.append(chunk)
+                continue
+
+            words = chunk.split()
+            current: list[str] = []
+            for word in words:
+                candidate = " ".join(current + [word]).strip()
+                if current and len(candidate) > max_len:
+                    final_chunks.append(" ".join(current))
+                    current = [word]
+                else:
+                    current.append(word)
+
+            if current:
+                final_chunks.append(" ".join(current))
+
+        if len(final_chunks) >= 2 and len(final_chunks[-1]) < 50:
+            final_chunks[-2] = f"{final_chunks[-2]} {final_chunks[-1]}".strip()
+            final_chunks.pop()
+
+        return [chunk.replace("<PARA_BREAK>", "").strip() for chunk in final_chunks if chunk.strip()]
