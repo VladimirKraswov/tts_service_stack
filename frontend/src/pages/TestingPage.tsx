@@ -22,6 +22,7 @@ export function TestingPage() {
   const [dictionaryId, setDictionaryId] = useState<number | undefined>(undefined)
   const [voiceId, setVoiceId] = useState<string | undefined>(undefined)
   const [loraName, setLoraName] = useState<string | undefined>(undefined)
+  const [preprocessProfile, setPreprocessProfile] = useState<'literary' | 'technical' | 'general'>('technical')
 
   const [previewText, setPreviewText] = useState('В Python функция __init__ вызывается при создании объекта. В React часто используют useEffect.')
   const [previewUrl, setPreviewUrl] = useState('')
@@ -264,6 +265,7 @@ export function TestingPage() {
         voice_id: voiceId,
         lora_name: loraName,
         language: 'ru',
+        preprocess_profile: preprocessProfile,
       })
 
       if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -353,6 +355,21 @@ export function TestingPage() {
 
       <section className="card wide">
         <h2>Preview mode — качественный оффлайн синтез</h2>
+
+        <div className="grid two">
+          <div>
+            <label>Профиль препроцессинга</label>
+            <select
+              value={preprocessProfile}
+              onChange={(e) => setPreprocessProfile(e.target.value as 'literary' | 'technical' | 'general')}
+            >
+              <option value="literary">Художественная литература</option>
+              <option value="technical">Технический текст</option>
+              <option value="general">Общий профиль</option>
+            </select>
+          </div>
+        </div>
+
         <textarea rows={6} value={previewText} onChange={(e) => setPreviewText(e.target.value)} />
         <div className="row wrap" style={{ marginTop: '16px' }}>
           <button onClick={() => void preview()} disabled={isPreviewing}>

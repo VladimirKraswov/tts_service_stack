@@ -10,10 +10,10 @@ def test_normalize():
 
 def test_apply_regex():
     tp = TechnicalPreprocessor()
-    assert "эй пи ай" in tp._apply_regex("Using the API today")
-    assert "джейсон" in tp._apply_regex("Send JSON payload")
-    assert "версия 1.2.3" in tp._apply_regex("Software v1.2.3")
-    assert "ю ай ю икс" in tp._apply_regex("Great UI/UX design")
+    assert "эй пи ай" in tp._apply_profile_rules("Using the API today", profile="technical")
+    assert "джейсон" in tp._apply_profile_rules("Send JSON payload", profile="technical")
+    assert "версия 1.2.3" in tp._apply_profile_rules("Software v1.2.3", profile="technical")
+    assert "ю ай ю икс" in tp._apply_profile_rules("Great UI/UX", profile="technical")
 
 def test_speak_code():
     tp = TechnicalPreprocessor()

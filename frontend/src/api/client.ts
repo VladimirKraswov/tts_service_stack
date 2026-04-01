@@ -3,6 +3,11 @@ export type DictionaryEntry = {
   source_text: string
   spoken_text: string
   note?: string | null
+  priority: number
+  is_enabled: boolean
+  case_sensitive: boolean
+  created_at: string
+  updated_at: string
 }
 
 export type Dictionary = {
@@ -10,8 +15,15 @@ export type Dictionary = {
   name: string
   slug: string
   description?: string | null
+  domain: string
+  language: string
   is_default: boolean
-  entries: DictionaryEntry[]
+  is_system: boolean
+  is_editable: boolean
+  priority: number
+  created_at: string
+  updated_at: string
+  entries?: DictionaryEntry[]
 }
 
 export type Voice = {
@@ -76,6 +88,21 @@ export type SynthesisJob = {
   updated_at: string
 }
 
+export type Page<T> = {
+  items: T[]
+  total: number
+  page: number
+  size: number
+  pages: number
+}
+
+export type DictionaryImportResponse = {
+  dictionary_id: number
+  entries_created: number
+  entries_updated: number
+  entries_deleted: number
+}
+
 async function readError(response: Response): Promise<string> {
   const contentType = response.headers.get('content-type') || ''
   try {
@@ -110,20 +137,78 @@ export const client = {
   meta: () => api<Record<string, unknown>>('/api/v1/meta'),
 
   listDictionaries: () => api<Dictionary[]>('/api/v1/dictionaries'),
-  createDictionary: (payload: { name: string; slug: string; description?: string; is_default?: boolean }) =>
+  getDictionary: (id: number) => api<Dictionary>(`/api/v1/dictionaries/${id}`),
+  createDictionary: (payload: {
+    name: string
+    slug: string
+    description?: string
+    domain?: string
+    language?: string
+    is_default?: boolean
+    priority?: number
+  }) =>
     api<Dictionary>('/api/v1/dictionaries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
-  addDictionaryEntry: (dictionaryId: number, payload: { source_text: string; spoken_text: string; note?: string }) =>
-    api<Dictionary>(`/api/v1/dictionaries/${dictionaryId}/entries`, {
+  updateDictionary: (id: number, payload: Partial<Dictionary>) =>
+    api<Dictionary>(`/api/v1/dictionaries/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  deleteDictionary: (id: number) =>
+    api<void>(`/api/v1/dictionaries/${id}`, { method: 'DELETE' }),
+
+  listDictionaryEntries: (dictionaryId: number, params?: { q?: string; page?: number; size?: number }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.q) searchParams.append('q', params.q)
+    if (params?.page) searchParams.append('page', String(params.page))
+    if (params?.size) searchParams.append('size', String(params.size))
+    const qs = searchParams.toString()
+    return api<Page<DictionaryEntry>>(`/api/v1/dictionaries/${dictionaryId}/entries${qs ? `?${qs}` : ''}`)
+  },
+  addDictionaryEntry: (dictionaryId: number, payload: {
+    source_text: string
+    spoken_text: string
+    note?: string
+    priority?: number
+    is_enabled?: boolean
+    case_sensitive?: boolean
+  }) =>
+    api<DictionaryEntry>(`/api/v1/dictionaries/${dictionaryId}/entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
+  updateDictionaryEntry: (dictionaryId: number, entryId: number, payload: Partial<DictionaryEntry>) =>
+    api<DictionaryEntry>(`/api/v1/dictionaries/${dictionaryId}/entries/${entryId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   deleteDictionaryEntry: (dictionaryId: number, entryId: number) =>
-    api<Dictionary>(`/api/v1/dictionaries/${dictionaryId}/entries/${entryId}`, { method: 'DELETE' }),
+    api<void>(`/api/v1/dictionaries/${dictionaryId}/entries/${entryId}`, { method: 'DELETE' }),
+
+  importFullDictionary: (payload: any, mode: string = 'merge') =>
+    api<DictionaryImportResponse>(`/api/v1/dictionaries/import?mode=${mode}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  importIntoDictionary: (dictionaryId: number, payload: any, mode: string = 'merge') =>
+    api<DictionaryImportResponse>(
+      `/api/v1/dictionaries/${dictionaryId}/import?mode=${mode}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    ),
+  exportDictionary: (dictionaryId: number) =>
+    api<any>(`/api/v1/dictionaries/${dictionaryId}/export`),
+
   previewDictionary: (dictionaryId: number, text: string) =>
     api<{ original_text: string; processed_text: string }>(`/api/v1/dictionaries/${dictionaryId}/preview`, {
       method: 'POST',
@@ -149,6 +234,7 @@ export const client = {
     reading_mode?: string
     speaking_rate?: string
     paragraph_pause_ms?: number
+    preprocess_profile?: string
   }) => {
     const body = JSON.stringify(payload)
 

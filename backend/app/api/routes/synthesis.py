@@ -57,8 +57,8 @@ async def create_synthesis_job(
 ) -> SynthesisJobCreateResponse:
     _validate_text_upload(file)
 
-    if preprocess_profile not in {"literary", "technical"}:
-        raise HTTPException(status_code=400, detail="preprocess_profile must be literary or technical")
+    if preprocess_profile not in {"literary", "technical", "general"}:
+        raise HTTPException(status_code=400, detail="preprocess_profile must be literary, technical or general")
 
     if reading_mode not in {"narration", "expressive", "dialogue", "technical"}:
         raise HTTPException(status_code=400, detail="reading_mode is invalid")

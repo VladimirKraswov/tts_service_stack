@@ -33,7 +33,7 @@ function getStageIndex(stage: string): number {
 }
 
 function pickDefaultDictionaryId(
-  profile: 'literary' | 'technical',
+  profile: 'literary' | 'technical' | 'general',
   dictionaries: Dictionary[],
 ): number | undefined {
   if (profile === 'literary') {
@@ -43,16 +43,23 @@ function pickDefaultDictionaryId(
       dictionaries[0]?.id
     )
   }
+  if (profile === 'technical') {
+    return (
+      dictionaries.find((item) => item.slug === 'default-tech')?.id ??
+      dictionaries.find((item) => item.is_default)?.id ??
+      dictionaries[0]?.id
+    )
+  }
 
   return (
-    dictionaries.find((item) => item.slug === 'default-tech')?.id ??
+    dictionaries.find((item) => item.slug === 'default-general-ru')?.id ??
     dictionaries.find((item) => item.is_default)?.id ??
     dictionaries[0]?.id
   )
 }
 
 function pickDefaultLoraName(
-  profile: 'literary' | 'technical',
+  profile: 'literary' | 'technical' | 'general',
   voices: Voice[],
 ): string {
   const loras = voices.filter((voice) => voice.kind === 'lora')
@@ -74,12 +81,12 @@ function pickDefaultLoraName(
 }
 
 function pickDefaultReadingMode(
-  profile: 'literary' | 'technical',
+  profile: 'literary' | 'technical' | 'general',
 ): 'narration' | 'expressive' | 'dialogue' | 'technical' {
   return profile === 'technical' ? 'technical' : 'narration'
 }
 
-function pickDefaultParagraphPause(profile: 'literary' | 'technical'): number {
+function pickDefaultParagraphPause(profile: 'literary' | 'technical' | 'general'): number {
   return profile === 'technical' ? 350 : 700
 }
 
@@ -96,7 +103,7 @@ export function SynthesisPage() {
   const [voiceId, setVoiceId] = useState<string>('')
   const [loraName, setLoraName] = useState<string>('')
   const [dictionaryId, setDictionaryId] = useState<number | undefined>(undefined)
-  const [preprocessProfile, setPreprocessProfile] = useState<'literary' | 'technical'>('literary')
+  const [preprocessProfile, setPreprocessProfile] = useState<'literary' | 'technical' | 'general'>('literary')
   const [readingMode, setReadingMode] = useState<'narration' | 'expressive' | 'dialogue' | 'technical'>('narration')
   const [speakingRate, setSpeakingRate] = useState<'slow' | 'normal' | 'fast'>('normal')
   const [paragraphPauseMs, setParagraphPauseMs] = useState(700)
@@ -127,7 +134,7 @@ export function SynthesisPage() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const handleProfileChange = (nextProfile: 'literary' | 'technical') => {
+  const handleProfileChange = (nextProfile: 'literary' | 'technical' | 'general') => {
     setPreprocessProfile(nextProfile)
     setDictionaryId(pickDefaultDictionaryId(nextProfile, dictionaries))
     setLoraName(pickDefaultLoraName(nextProfile, voices))
@@ -235,10 +242,11 @@ export function SynthesisPage() {
             <label>Профиль препроцессинга</label>
             <select
               value={preprocessProfile}
-              onChange={(e) => handleProfileChange(e.target.value as 'literary' | 'technical')}
+              onChange={(e) => handleProfileChange(e.target.value as 'literary' | 'technical' | 'general')}
             >
               <option value="literary">Художественная литература</option>
               <option value="technical">Технический текст</option>
+              <option value="general">Общий профиль</option>
             </select>
           </div>
 

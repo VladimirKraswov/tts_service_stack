@@ -37,7 +37,9 @@ async def preview_audio_meta(
     db: Session = Depends(get_db),
 ) -> LivePreviewMetaResponse:
     _validate_preview_text(payload.text)
-    processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
+    processed = preprocessor.process(
+        db, payload.text, dictionary_id=payload.dictionary_id, profile=payload.preprocess_profile
+    )
     return LivePreviewMetaResponse(
         original_text=payload.text,
         processed_text=processed.processed_text,
@@ -53,7 +55,9 @@ async def preview_audio(
     _validate_preview_text(payload.text)
 
     try:
-        processed = preprocessor.process(db, payload.text, dictionary_id=payload.dictionary_id)
+        processed = preprocessor.process(
+            db, payload.text, dictionary_id=payload.dictionary_id, profile=payload.preprocess_profile
+        )
         engine = request.app.state.preview_engine
         wav_bytes = await engine.synthesize(
             PreviewRequest(
