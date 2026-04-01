@@ -6,6 +6,9 @@ class LiveOptions(BaseModel):
     voice_id: str | None = None
     lora_name: str | None = None
     language: str = 'ru'
+    reading_mode: str = 'narration'
+    speaking_rate: str | None = None
+    paragraph_pause_ms: int = 500
 
 
 class LiveEnqueueRequest(LiveOptions):

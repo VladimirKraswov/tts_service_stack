@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.dictionaries import router as dictionaries_router
 from app.api.routes.health import router as health_router
 from app.api.routes.live import router as live_router
+from app.api.routes.synthesis import router as synthesis_router
 from app.api.routes.training import router as training_router
 from app.api.routes.voices import router as voices_router
 from app.core.config import get_settings
@@ -107,3 +108,4 @@ app.include_router(dictionaries_router, prefix=settings.api_prefix)
 app.include_router(voices_router, prefix=settings.api_prefix)
 app.include_router(training_router, prefix=settings.api_prefix)
 app.include_router(live_router, prefix=settings.api_prefix)
+app.include_router(synthesis_router, prefix=settings.api_prefix)

@@ -18,6 +18,9 @@ class QwenPreviewEngine(PreviewEngine):
                 voice_id=request.voice_id,
                 lora_name=request.lora_name,
                 language=request.language,
+                reading_mode=request.reading_mode,
+                speaking_rate=request.speaking_rate,
+                paragraph_pause_ms=request.paragraph_pause_ms,
             )
         )
         return wav_bytes

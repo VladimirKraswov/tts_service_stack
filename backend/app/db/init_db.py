@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models.base import Base
 from app.models.dictionary import Dictionary, DictionaryEntry
+from app.models.synthesis import SynthesisJob
 from app.models.voice import VoiceProfile
 
 
@@ -39,22 +40,68 @@ def _ensure_voice(
     existing.kind = kind
 
 
+def _ensure_dictionary(
+    session,
+    *,
+    name: str,
+    slug: str,
+    description: str,
+    is_default: bool,
+    entries: list[tuple[str, str, str]],
+) -> Dictionary:
+    dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == slug))
+    if dictionary is None:
+        dictionary = Dictionary(
+            name=name,
+            slug=slug,
+            description=description,
+            is_default=is_default,
+        )
+        session.add(dictionary)
+        session.flush()
+    else:
+        dictionary.name = name
+        dictionary.description = description
+        dictionary.is_default = is_default
+        session.flush()
+
+    existing_entries = {
+        entry.source_text: entry
+        for entry in session.scalars(
+            select(DictionaryEntry).where(DictionaryEntry.dictionary_id == dictionary.id)
+        ).all()
+    }
+
+    for source_text, spoken_text, note in entries:
+        row = existing_entries.get(source_text)
+        if row is None:
+            session.add(
+                DictionaryEntry(
+                    dictionary_id=dictionary.id,
+                    source_text=source_text,
+                    spoken_text=spoken_text,
+                    note=note,
+                )
+            )
+        else:
+            row.spoken_text = spoken_text
+            row.note = note
+
+    return dictionary
+
+
 def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
 
     with SessionLocal() as session:
-        default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
-        if default_dictionary is None:
-            default_dictionary = Dictionary(
-                name='Default Tech',
-                slug='default-tech',
-                description='Базовый словарь произношения технических терминов.',
-                is_default=True,
-            )
-            session.add(default_dictionary)
-            session.flush()
-            entries = [
+        _ensure_dictionary(
+            session,
+            name='Default Tech',
+            slug='default-tech',
+            description='Базовый словарь произношения технических терминов.',
+            is_default=True,
+            entries=[
                 ('Python', 'Пайтон', 'Название языка Python'),
                 ('Java', 'Джава', 'Название языка Java'),
                 ('React', 'Реакт', 'Название фреймворка React'),
@@ -63,16 +110,28 @@ def init_db() -> None:
                 ('useState', 'юз стейт', 'Хук React'),
                 ('goroutine', 'горутина', 'Go concurrency primitive'),
                 ('__init__', 'андерскор андерскор инит андерскор андерскор', 'Python magic method'),
-            ]
-            for source, spoken, note in entries:
-                session.add(
-                    DictionaryEntry(
-                        dictionary_id=default_dictionary.id,
-                        source_text=source,
-                        spoken_text=spoken,
-                        note=note,
-                    )
-                )
+                ('WebSocket', 'веб сокет', 'Сетевой термин'),
+                ('FastAPI', 'фаст эй пи ай', 'Название фреймворка'),
+            ],
+        )
+
+        _ensure_dictionary(
+            session,
+            name='Default Literary',
+            slug='default-literary',
+            description='Базовый словарь и подстановки для чтения художественной литературы.',
+            is_default=False,
+            entries=[
+                ('г.', 'город', 'Сокращение'),
+                ('ул.', 'улица', 'Сокращение'),
+                ('им.', 'имени', 'Сокращение'),
+                ('т.д.', 'так далее', 'Сокращение'),
+                ('т.п.', 'тому подобное', 'Сокращение'),
+                ('и т.д.', 'и так далее', 'Сокращение'),
+                ('и т.п.', 'и тому подобное', 'Сокращение'),
+                ('гг.', 'годы', 'Сокращение'),
+            ],
+        )
 
         if settings.effective_preview_backend == 'qwen':
             qwen_model = settings.qwen_model_name
@@ -91,6 +150,7 @@ def init_db() -> None:
             ]
             for name, display_name, speaker, description in qwen_voices:
                 _ensure_voice(session, name, display_name, 'qwen', qwen_model, f'{description} Speaker={speaker}')
+
             _ensure_voice(
                 session,
                 'tech-lora-v1',

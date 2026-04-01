@@ -47,6 +47,19 @@ LANGUAGE_ALIASES = {
     'auto': 'Auto',
 }
 
+READING_MODE_ALIASES = {
+    'narration': 'Читай ровно, как художественный аудиорассказ.',
+    'expressive': 'Читай выразительно, с естественными интонациями.',
+    'dialogue': 'Чётко разделяй авторскую речь и диалоги.',
+    'technical': 'Читай чётко, спокойно и нейтрально, как технический диктор.',
+}
+
+SPEAKING_RATE_ALIASES = {
+    'slow': 'Темп ниже среднего, без спешки.',
+    'normal': 'Средний естественный темп.',
+    'fast': 'Темп чуть выше среднего, но разборчиво.',
+}
+
 
 def _normalize_name(value: str) -> str:
     return value.strip().lower().replace(' ', '_')
@@ -58,6 +71,9 @@ class QwenSynthesisRequest:
     voice_id: str | None = None
     lora_name: str | None = None
     language: str = 'ru'
+    reading_mode: str = 'narration'
+    speaking_rate: str | None = None
+    paragraph_pause_ms: int = 500
 
 
 class QwenRuntime:
@@ -190,20 +206,35 @@ class QwenRuntime:
             return requested
         return self._supported_languages.get(_normalize_name(requested), requested)
 
+    def _compose_instruction(self, request: QwenSynthesisRequest) -> str:
+        base_style = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style).strip()
+        reading_style = READING_MODE_ALIASES.get(request.reading_mode, '').strip()
+        rate_style = SPEAKING_RATE_ALIASES.get(request.speaking_rate or '', '').strip()
+
+        parts = [base_style]
+        if reading_style:
+            parts.append(reading_style)
+        if rate_style:
+            parts.append(rate_style)
+
+        return " ".join(part for part in parts if part).strip()
+
     def _generate_wav_bytes_sync(self, request: QwenSynthesisRequest) -> tuple[bytes, int]:
         if self._model is None:
             raise RuntimeError('Qwen model is not loaded')
 
         speaker = self._resolve_speaker(request.voice_id)
         language = self._resolve_language(request.language)
-        instruct_text = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
+        instruct_text = self._compose_instruction(request)
 
         logger.info(
-            'Qwen synth start speaker=%s language=%s chars=%s lora=%s attn=%s',
+            'Qwen synth start speaker=%s language=%s chars=%s lora=%s reading_mode=%s speaking_rate=%s attn=%s',
             speaker,
             language,
             len(request.text),
             request.lora_name,
+            request.reading_mode,
+            request.speaking_rate,
             self._active_attn_implementation,
         )
 
@@ -215,7 +246,7 @@ class QwenRuntime:
         }
 
         if instruct_text and self._instruction_kwarg:
-            kwargs[self._instruction_kwarg] = instruct_text.strip()
+            kwargs[self._instruction_kwarg] = instruct_text
 
         wavs, sr = self._model.generate_custom_voice(**kwargs)
 

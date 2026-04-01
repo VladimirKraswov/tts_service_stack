@@ -30,6 +30,8 @@ class TechnicalPreprocessor:
             (r"\bCI/CD\b", "си ай си ди"),
             (r"\bv(\d+)\.(\d+)\.(\d+)\b", r"версия \1.\2.\3"),
             (r"\bUI/UX\b", "ю ай ю икс"),
+            (r"\bGPU\b", "джи пи ю"),
+            (r"\bCPU\b", "си пи ю"),
         ]
 
     def process(self, db: Session, text: str, dictionary_id: int | None = None) -> ProcessedPayload:
@@ -44,6 +46,7 @@ class TechnicalPreprocessor:
         text = unicodedata.normalize("NFKC", text)
         text = text.replace("\u00A0", " ")
         text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\r\n?", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
@@ -59,6 +62,10 @@ class TechnicalPreprocessor:
 
     def _speak_code(self, code: str) -> str:
         replacements = {
+            "==": " равно равно ",
+            "!=": " не равно ",
+            "=>": " стрелка ",
+            "->": " стрелка ",
             "_": " андерскор ",
             "/": " слэш ",
             ".": " точка ",
@@ -70,10 +77,6 @@ class TechnicalPreprocessor:
             "}": " закрывающая фигурная скобка ",
             "[": " открывающая квадратная скобка ",
             "]": " закрывающая квадратная скобка ",
-            "==": " равно равно ",
-            "!=": " не равно ",
-            "=>": " стрелка ",
-            "->": " стрелка ",
         }
         for src, dst in replacements.items():
             code = code.replace(src, dst)
@@ -82,7 +85,7 @@ class TechnicalPreprocessor:
 
     def _apply_regex(self, text: str) -> str:
         for pattern, replacement in self.regex_replacements:
-            text = re.sub(pattern, replacement, text)
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
         return text
 
     def _apply_dictionary(self, db: Session, text: str, dictionary_id: int | None) -> str:
@@ -94,15 +97,12 @@ class TechnicalPreprocessor:
         if dictionary is None or not dictionary.entries:
             return text
 
-        # Sort by length descending to match longer phrases first
         entries = sorted(dictionary.entries, key=lambda entry: len(entry.source_text), reverse=True)
         for entry in entries:
-            # Using \b word boundaries and IGNORECASE to be more robust
-            # We escape the source text but wrap it in \b if it's alphanumeric
             pattern = re.escape(entry.source_text)
-            if entry.source_text[0].isalnum():
+            if entry.source_text and entry.source_text[0].isalnum():
                 pattern = r"\b" + pattern
-            if entry.source_text[-1].isalnum():
+            if entry.source_text and entry.source_text[-1].isalnum():
                 pattern = pattern + r"\b"
 
             text = re.compile(pattern, re.IGNORECASE).sub(entry.spoken_text, text)
@@ -112,27 +112,33 @@ class TechnicalPreprocessor:
         parts = [part.strip() for part in re.split(r"(?<=[.!?;:\n])\s+", text) if part.strip()]
         if not parts:
             return [text]
+
         chunks: list[str] = []
         buffer = ""
-        target = 140
-        max_len = 220
+        target = 180
+        max_len = 260
+
         for part in parts:
             if not buffer:
                 buffer = part
                 continue
+
             candidate = f"{buffer} {part}".strip()
             if len(candidate) <= target:
                 buffer = candidate
             else:
                 chunks.append(buffer)
                 buffer = part
+
         if buffer:
             chunks.append(buffer)
+
         final_chunks: list[str] = []
         for chunk in chunks:
             if len(chunk) <= max_len:
                 final_chunks.append(chunk)
                 continue
+
             words = chunk.split()
             current: list[str] = []
             for word in words:
@@ -142,6 +148,8 @@ class TechnicalPreprocessor:
                     current = [word]
                 else:
                     current.append(word)
+
             if current:
                 final_chunks.append(" ".join(current))
-        return final_chunks
+
+        return [chunk for chunk in final_chunks if chunk]

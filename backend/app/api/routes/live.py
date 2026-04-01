@@ -61,6 +61,9 @@ async def preview_audio(
                 voice_id=payload.voice_id,
                 lora_name=payload.lora_name,
                 language=payload.language,
+                reading_mode=payload.reading_mode,
+                speaking_rate=payload.speaking_rate,
+                paragraph_pause_ms=payload.paragraph_pause_ms,
             )
         )
         return StreamingResponse(

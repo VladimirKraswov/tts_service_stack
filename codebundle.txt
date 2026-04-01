@@ -1,11 +1,42 @@
 === CODE BUNDLE ===
 root: /Volumes/Extend/work/tts_service_stack
 ignore: .codebundleignore
-generated: 2026-03-31T18:17:44.621Z
+generated: 2026-03-31T20:50:21.380Z
 
 
 
 path: /.env
+----------------------------------------
+# Qwen preview
+QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+QWEN_DEVICE=cuda:0
+QWEN_DTYPE=bfloat16
+QWEN_ATTN_IMPLEMENTATION=sdpa
+QWEN_COMPILE=false
+QWEN_MAX_CONCURRENT=2
+QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
+
+# Optional legacy cloud realtime Qwen
+QWEN_REALTIME_WS_URL=
+QWEN_REALTIME_API_KEY=
+QWEN_REALTIME_MODEL=qwen3-tts-flash-realtime
+QWEN_REALTIME_MODE=commit
+QWEN_REALTIME_SAMPLE_RATE=24000
+QWEN_REALTIME_FORMAT=pcm
+
+AUDIO_SAMPLE_RATE=24000
+TRAINING_POLL_SECONDS=5
+
+LIVE_BUFFER_IDLE_MS=220
+LIVE_BUFFER_SOFT_FLUSH_CHARS=80
+LIVE_BUFFER_TARGET_CHARS=140
+LIVE_BUFFER_MAX_CHARS=220
+LIVE_BUFFER_MIN_CHARS=60
+LIVE_DICTIONARY_CACHE_TTL_SECONDS=10
+LIVE_PCM_CHUNK_MS=40
+
+
+path: /.env.example
 ----------------------------------------
 POSTGRES_DB=tts_admin
 POSTGRES_USER=tts_admin
@@ -24,7 +55,7 @@ TTS_BACKEND=qwen
 
 # Explicit backend split
 PREVIEW_BACKEND=qwen
-LIVE_BACKEND=cosyvoice2
+LIVE_BACKEND=mock
 
 # Qwen preview
 QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
@@ -43,53 +74,10 @@ QWEN_REALTIME_MODE=commit
 QWEN_REALTIME_SAMPLE_RATE=24000
 QWEN_REALTIME_FORMAT=pcm
 
-# CosyVoice2 local live
-COSYVOICE_ROOT=/opt/cosyvoice
-COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B
-COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts
-COSYVOICE_DEFAULT_PROMPT_WAV=/data/cosyvoice_prompts/default.wav
-COSYVOICE_DEFAULT_PROMPT_TEXT=Привет. Это опорная запись для локального live-режима CosyVoice2.
-COSYVOICE_STREAM=true
-COSYVOICE_TEXT_FRONTEND=true
-COSYVOICE_SPEED=1.0
-COSYVOICE_FP16=true
-COSYVOICE_LOAD_JIT=false
-COSYVOICE_LOAD_TRT=false
-COSYVOICE_LOAD_VLLM=false
-
 AUDIO_SAMPLE_RATE=24000
 TRAINING_POLL_SECONDS=5
 
-LIVE_BUFFER_IDLE_MS=120
-LIVE_BUFFER_SOFT_FLUSH_CHARS=24
-LIVE_BUFFER_TARGET_CHARS=36
-LIVE_BUFFER_MAX_CHARS=56
-LIVE_PCM_CHUNK_MS=40
-LIVE_DICTIONARY_CACHE_TTL_SECONDS=10
-
-
-path: /.env.example
-----------------------------------------
-POSTGRES_DB=tts_admin
-POSTGRES_USER=tts_admin
-POSTGRES_PASSWORD=tts_admin_change_me
-DATABASE_URL=postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin
-REDIS_URL=redis://redis:6379/0
-APP_HOST=0.0.0.0
-APP_PORT=8000
-APP_TITLE=TTS Admin Stack
-API_PREFIX=/api/v1
-DATA_DIR=/data
-TTS_BACKEND=qwen
-QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
-QWEN_DEVICE=cuda:0
-QWEN_DTYPE=bfloat16
-QWEN_ATTN_IMPLEMENTATION=sdpa
-QWEN_COMPILE=false
-QWEN_MAX_CONCURRENT=2
-QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
-TRAINING_POLL_SECONDS=5
-FRONTEND_ORIGIN=http://localhost:8080
+LIVE_BUFFER_IDLE_MS=220
 
 
 path: /.gitignore
@@ -144,43 +132,6 @@ Thumbs.db
 backend/.env.test
 
 
-path: /.vscode/c_cpp_properties.json
-----------------------------------------
-{
-  "configurations": [
-    {
-      "name": "STM32",
-      "includePath": [
-        "${workspaceFolder}/Core/Inc",
-        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
-        "${workspaceFolder}/Drivers/CMSIS/Include",
-        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
-        "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
-      ],
-      "defines": [
-        "USE_HAL_DRIVER",
-        "STM32F407xx"
-      ],
-      "compilerPath": "/Applications/STM32CubeIDE.app/Contents/Eclipse/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.macos64_1.0.100.202509120712/tools/bin/arm-none-eabi-gcc",
-      "cStandard": "c11",
-      "cppStandard": "c++17",
-      "intelliSenseMode": "gcc-arm",
-      "browse": {
-        "path": [
-          "${workspaceFolder}/Core/Inc",
-          "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
-          "${workspaceFolder}/Drivers/CMSIS/Include",
-          "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
-          "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
-        ],
-        "limitSymbolsToIncludedHeaders": true
-      }
-    }
-  ],
-  "version": 4
-}
-
-
 path: /.vscode copy/c_cpp_properties.json
 ----------------------------------------
 {
@@ -216,60 +167,6 @@ path: /.vscode copy/c_cpp_properties.json
   ],
   "version": 4
 }
-
-
-path: /backend/.env
-----------------------------------------
-POSTGRES_DB=tts_admin
-POSTGRES_USER=tts_admin
-POSTGRES_PASSWORD=tts_admin_change_me
-DATABASE_URL=postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin
-REDIS_URL=redis://redis:6379/0
-APP_HOST=0.0.0.0
-APP_PORT=8000
-APP_TITLE=TTS Admin Stack
-API_PREFIX=/api/v1
-DATA_DIR=/data
-FRONTEND_ORIGIN=http://localhost:8080
-
-# backward compatibility
-TTS_BACKEND=qwen
-
-# split backends
-PREVIEW_BACKEND=qwen
-LIVE_BACKEND=cosyvoice2
-
-# Qwen preview
-QWEN_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
-QWEN_DEVICE=cuda:0
-QWEN_DTYPE=bfloat16
-QWEN_ATTN_IMPLEMENTATION=sdpa
-QWEN_COMPILE=false
-QWEN_MAX_CONCURRENT=2
-QWEN_PREVIEW_STYLE=Четко, спокойно, как технический диктор.
-
-# CosyVoice2 live
-COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B
-COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts
-COSYVOICE_DEFAULT_PROMPT_NAME=default
-COSYVOICE_STREAM=true
-COSYVOICE_TEXT_FRONTEND=true
-COSYVOICE_SPEED=1.0
-COSYVOICE_FP16=true
-COSYVOICE_LOAD_JIT=false
-COSYVOICE_LOAD_TRT=false
-COSYVOICE_LOAD_VLLM=false
-COSYVOICE_MAX_CONCURRENT=1
-
-AUDIO_SAMPLE_RATE=24000
-TRAINING_POLL_SECONDS=5
-
-LIVE_BUFFER_IDLE_MS=120
-LIVE_BUFFER_SOFT_FLUSH_CHARS=24
-LIVE_BUFFER_TARGET_CHARS=36
-LIVE_BUFFER_MAX_CHARS=56
-LIVE_PCM_CHUNK_MS=40
-LIVE_DICTIONARY_CACHE_TTL_SECONDS=10
 
 
 path: /backend/.env.test
@@ -553,28 +450,49 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
-            data = json.loads(raw)
+
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                await websocket.send_json({'type': 'job.error', 'error': 'Invalid JSON payload'})
+                continue
+
+            if not isinstance(data, dict):
+                await websocket.send_json({'type': 'job.error', 'error': 'Payload must be a JSON object'})
+                continue
+
             msg_type = data.get('type')
+            language = str(data.get('language') or 'ru')
 
             if msg_type == 'append_text':
+                text = str(data.get('text') or '').strip()
+                if not text:
+                    await websocket.send_json({'type': 'job.error', 'error': 'append_text requires non-empty text'})
+                    continue
+
                 await manager.append_text(
                     session_id,
-                    data.get('text', ''),
+                    text,
                     dictionary_id=data.get('dictionary_id'),
                     voice_id=data.get('voice_id'),
                     lora_name=data.get('lora_name'),
-                    language=data.get('language', 'ru'),
+                    language=language,
                     flush=bool(data.get('flush', False)),
                 )
 
             elif msg_type == 'enqueue_text':
+                text = str(data.get('text') or '').strip()
+                if not text:
+                    await websocket.send_json({'type': 'job.error', 'error': 'enqueue_text requires non-empty text'})
+                    continue
+
                 await manager.enqueue_once(
                     session_id,
-                    data.get('text', ''),
+                    text,
                     dictionary_id=data.get('dictionary_id'),
                     voice_id=data.get('voice_id'),
                     lora_name=data.get('lora_name'),
-                    language=data.get('language', 'ru'),
+                    language=language,
                 )
 
             elif msg_type == 'flush':
@@ -585,6 +503,14 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
 
             elif msg_type == 'ping':
                 await websocket.send_json({'type': 'pong'})
+
+            else:
+                await websocket.send_json(
+                    {
+                        'type': 'job.error',
+                        'error': f'Unknown message type: {msg_type}',
+                    }
+                )
 
     except WebSocketDisconnect:
         await manager.disconnect(session_id)
@@ -709,7 +635,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+        protected_namespaces=(),
+    )
 
     app_title: str = Field(default='TTS Admin Stack', alias='APP_TITLE')
     app_host: str = Field(default='0.0.0.0', alias='APP_HOST')
@@ -743,28 +674,16 @@ class Settings(BaseSettings):
         alias='QWEN_PREVIEW_STYLE',
     )
 
-    # CosyVoice2 live
-    cosyvoice_model_dir: Path = Field(default=Path('/data/models/CosyVoice2-0.5B'), alias='COSYVOICE_MODEL_DIR')
-    cosyvoice_prompt_dir: Path = Field(default=Path('/data/cosyvoice_prompts'), alias='COSYVOICE_PROMPT_DIR')
-    cosyvoice_default_prompt_name: str = Field(default='default', alias='COSYVOICE_DEFAULT_PROMPT_NAME')
-    cosyvoice_stream: bool = Field(default=True, alias='COSYVOICE_STREAM')
-    cosyvoice_text_frontend: bool = Field(default=True, alias='COSYVOICE_TEXT_FRONTEND')
-    cosyvoice_speed: float = Field(default=1.0, alias='COSYVOICE_SPEED')
-    cosyvoice_fp16: bool = Field(default=True, alias='COSYVOICE_FP16')
-    cosyvoice_load_jit: bool = Field(default=False, alias='COSYVOICE_LOAD_JIT')
-    cosyvoice_load_trt: bool = Field(default=False, alias='COSYVOICE_LOAD_TRT')
-    cosyvoice_load_vllm: bool = Field(default=False, alias='COSYVOICE_LOAD_VLLM')
-    cosyvoice_max_concurrent: int = Field(default=1, alias='COSYVOICE_MAX_CONCURRENT')
-
     audio_sample_rate: int = Field(default=24000, alias='AUDIO_SAMPLE_RATE')
     training_poll_seconds: int = Field(default=5, alias='TRAINING_POLL_SECONDS')
 
-    live_buffer_idle_ms: int = Field(default=120, alias='LIVE_BUFFER_IDLE_MS')
-    live_buffer_soft_flush_chars: int = Field(default=24, alias='LIVE_BUFFER_SOFT_FLUSH_CHARS')
-    live_buffer_target_chars: int = Field(default=36, alias='LIVE_BUFFER_TARGET_CHARS')
-    live_buffer_max_chars: int = Field(default=56, alias='LIVE_BUFFER_MAX_CHARS')
-    live_pcm_chunk_ms: int = Field(default=40, alias='LIVE_PCM_CHUNK_MS')
+    live_buffer_idle_ms: int = Field(default=220, alias='LIVE_BUFFER_IDLE_MS')
+    live_buffer_soft_flush_chars: int = Field(default=80, alias='LIVE_BUFFER_SOFT_FLUSH_CHARS')
+    live_buffer_target_chars: int = Field(default=140, alias='LIVE_BUFFER_TARGET_CHARS')
+    live_buffer_max_chars: int = Field(default=220, alias='LIVE_BUFFER_MAX_CHARS')
+    live_buffer_min_chars: int = Field(default=60, alias='LIVE_BUFFER_MIN_CHARS')
     live_dictionary_cache_ttl_seconds: int = Field(default=10, alias='LIVE_DICTIONARY_CACHE_TTL_SECONDS')
+    live_pcm_chunk_ms: int = Field(default=40, alias='LIVE_PCM_CHUNK_MS')
 
     @property
     def effective_preview_backend(self) -> str:
@@ -799,7 +718,6 @@ def get_settings() -> Settings:
     settings.datasets_dir.mkdir(parents=True, exist_ok=True)
     settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
     settings.models_dir.mkdir(parents=True, exist_ok=True)
-    settings.cosyvoice_prompt_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
 
@@ -995,9 +913,17 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 
-def _should_init_db() -> bool:
-    raw = os.getenv('INIT_DB', 'true').strip().lower()
+def _env_flag(name: str, default: str = 'false') -> bool:
+    raw = os.getenv(name, default).strip().lower()
     return raw in {'1', 'true', 'yes', 'on'}
+
+
+def _should_init_db() -> bool:
+    return _env_flag('INIT_DB', 'true')
+
+
+def _is_testing() -> bool:
+    return _env_flag('TESTING', 'false')
 
 
 async def _safe_warmup(app: FastAPI) -> None:
@@ -1018,7 +944,7 @@ async def _safe_warmup(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not os.getenv('TESTING') and _should_init_db():
+    if not _is_testing() and _should_init_db():
         init_db()
 
     preview_engine = get_preview_engine()
@@ -1035,7 +961,8 @@ async def lifespan(app: FastAPI):
     app.state.warmup_task = None
 
     try:
-        app.state.warmup_task = asyncio.create_task(_safe_warmup(app), name='tts-background-warmup')
+        if not _is_testing():
+            app.state.warmup_task = asyncio.create_task(_safe_warmup(app), name='tts-background-warmup')
         yield
     finally:
         warmup_task = getattr(app.state, 'warmup_task', None)
@@ -1186,21 +1113,21 @@ class DictionaryEntryRead(DictionaryEntryCreate):
 
 
 class DictionaryCreate(BaseModel):
-    name: str
-    slug: str
+    name: str = Field(min_length=1, max_length=120)
+    slug: str = Field(min_length=1, max_length=120)
     description: str | None = None
     is_default: bool = False
 
 
 class DictionaryRead(DictionaryCreate):
     id: int
-    entries: list[DictionaryEntryRead] = []
+    entries: list[DictionaryEntryRead] = Field(default_factory=list)
 
     model_config = {'from_attributes': True}
 
 
 class PronunciationPreviewRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1)
 
 
 class PronunciationPreviewResponse(BaseModel):
@@ -1300,37 +1227,6 @@ class VoiceRead(BaseModel):
     model_config = {'from_attributes': True}
 
 
-path: /backend/app/services/buffer.py
-----------------------------------------
-import json
-from typing import Any
-
-from redis.asyncio import Redis
-
-from app.core.config import get_settings
-
-settings = get_settings()
-
-
-class RedisFifoBuffer:
-    def __init__(self, redis: Redis) -> None:
-        self.redis = redis
-
-    @staticmethod
-    def _key(session_id: str) -> str:
-        return f'live-buffer:{session_id}'
-
-    async def enqueue(self, session_id: str, payload: dict[str, Any]) -> None:
-        await self.redis.rpush(self._key(session_id), json.dumps(payload, ensure_ascii=False))
-
-    async def consume(self, session_id: str, timeout: int = 1) -> dict[str, Any] | None:
-        item = await self.redis.blpop(self._key(session_id), timeout=timeout)
-        if item is None:
-            return None
-        _, raw = item
-        return json.loads(raw)
-
-
 path: /backend/app/services/live/base.py
 ----------------------------------------
 from __future__ import annotations
@@ -1368,257 +1264,6 @@ class LiveEngine(ABC):
         raise NotImplementedError
 
 
-path: /backend/app/services/live/cosyvoice_runtime.py
-----------------------------------------
-from __future__ import annotations
-
-import asyncio
-import logging
-import threading
-from dataclasses import dataclass
-from pathlib import Path
-from typing import AsyncIterator
-
-import numpy as np
-
-from app.core.config import get_settings
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class PromptProfile:
-    name: str
-    wav_path: Path
-    prompt_text: str
-
-
-class CosyVoiceRuntime:
-    def __init__(self) -> None:
-        self.settings = get_settings()
-        self._model = None
-        self._sample_rate = self.settings.audio_sample_rate
-        self._lock = asyncio.Lock()
-        self._semaphore = asyncio.Semaphore(max(1, self.settings.cosyvoice_max_concurrent))
-
-    @property
-    def sample_rate(self) -> int:
-        return self._sample_rate
-
-    async def warmup(self) -> None:
-        await self._ensure_model()
-
-    async def stream_zero_shot(
-        self,
-        *,
-        text: str,
-        voice_id: str | None = None,
-    ) -> AsyncIterator[tuple[bytes, int]]:
-        await self._ensure_model()
-        profile = self._resolve_prompt_profile(voice_id)
-
-        async with self._semaphore:
-            loop = asyncio.get_running_loop()
-            queue: asyncio.Queue[object] = asyncio.Queue()
-            done = object()
-
-            def worker() -> None:
-                try:
-                    assert self._model is not None
-                    for item in self._model.inference_zero_shot(
-                        text,
-                        profile.prompt_text,
-                        str(profile.wav_path),
-                        stream=self.settings.cosyvoice_stream,
-                        speed=self.settings.cosyvoice_speed,
-                        text_frontend=self.settings.cosyvoice_text_frontend,
-                    ):
-                        pcm_bytes = self._speech_to_pcm16le(item['tts_speech'])
-                        loop.call_soon_threadsafe(queue.put_nowait, pcm_bytes)
-                except Exception as exc:  # pragma: no cover
-                    logger.exception('CosyVoice stream worker failed')
-                    loop.call_soon_threadsafe(queue.put_nowait, exc)
-                finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, done)
-
-            threading.Thread(
-                target=worker,
-                daemon=True,
-                name='cosyvoice2-stream-worker',
-            ).start()
-
-            seq_count = 0
-            while True:
-                item = await queue.get()
-                if item is done:
-                    break
-                if isinstance(item, Exception):
-                    raise RuntimeError(f'CosyVoice inference failed: {item}') from item
-                if not isinstance(item, (bytes, bytearray)):
-                    raise RuntimeError(f'Unexpected CosyVoice stream payload type: {type(item)}')
-
-                seq_count += 1
-                yield bytes(item), self._sample_rate
-
-    async def _ensure_model(self) -> None:
-        if self._model is not None:
-            return
-
-        async with self._lock:
-            if self._model is not None:
-                return
-
-            try:
-                from cosyvoice.cli.cosyvoice import AutoModel
-            except Exception as exc:  # pragma: no cover
-                raise RuntimeError(
-                    'Failed to import CosyVoice. Check Docker image and PYTHONPATH.'
-                ) from exc
-
-            logger.info(
-                'Loading CosyVoice model model_dir=%s fp16=%s load_jit=%s load_trt=%s load_vllm=%s',
-                self.settings.cosyvoice_model_dir,
-                self.settings.cosyvoice_fp16,
-                self.settings.cosyvoice_load_jit,
-                self.settings.cosyvoice_load_trt,
-                self.settings.cosyvoice_load_vllm,
-            )
-
-            self._model = AutoModel(
-                model_dir=str(self.settings.cosyvoice_model_dir),
-                load_jit=self.settings.cosyvoice_load_jit,
-                load_trt=self.settings.cosyvoice_load_trt,
-                load_vllm=self.settings.cosyvoice_load_vllm,
-                fp16=self.settings.cosyvoice_fp16,
-            )
-            self._sample_rate = int(getattr(self._model, 'sample_rate', self.settings.audio_sample_rate))
-
-            logger.info('CosyVoice model loaded sample_rate=%s', self._sample_rate)
-
-    def _resolve_prompt_profile(self, requested_name: str | None) -> PromptProfile:
-        candidates: list[str] = []
-        if requested_name:
-            candidates.append(requested_name)
-        default_name = self.settings.cosyvoice_default_prompt_name.strip()
-        if default_name and default_name not in candidates:
-            candidates.append(default_name)
-
-        for name in candidates:
-            profile = self._load_profile(name)
-            if profile is not None:
-                return profile
-
-        raise RuntimeError(
-            'CosyVoice prompt profile not found. '
-            f'Create {self.settings.cosyvoice_prompt_dir / "default.wav"} and '
-            f'{self.settings.cosyvoice_prompt_dir / "default.txt"} '
-            'or pass a matching voice_id profile name.'
-        )
-
-    def _load_profile(self, name: str) -> PromptProfile | None:
-        prompt_dir = self.settings.cosyvoice_prompt_dir
-
-        direct_wav = prompt_dir / f'{name}.wav'
-        direct_txt = prompt_dir / f'{name}.txt'
-        if direct_wav.exists() and direct_txt.exists():
-            return PromptProfile(
-                name=name,
-                wav_path=direct_wav,
-                prompt_text=direct_txt.read_text(encoding='utf-8').strip(),
-            )
-
-        nested_dir = prompt_dir / name
-        nested_wav = nested_dir / 'prompt.wav'
-        nested_txt = nested_dir / 'prompt.txt'
-        if nested_wav.exists() and nested_txt.exists():
-            return PromptProfile(
-                name=name,
-                wav_path=nested_wav,
-                prompt_text=nested_txt.read_text(encoding='utf-8').strip(),
-            )
-
-        return None
-
-    def _speech_to_pcm16le(self, speech) -> bytes:
-        if hasattr(speech, 'detach'):
-            array = speech.detach().cpu().float().numpy()
-        else:
-            array = np.asarray(speech, dtype=np.float32)
-
-        array = np.asarray(array, dtype=np.float32)
-        array = np.squeeze(array)
-
-        if array.ndim == 0:
-            array = array.reshape(1)
-        elif array.ndim > 1:
-            array = array.reshape(-1)
-
-        array = np.clip(array, -1.0, 1.0)
-        pcm16 = (array * 32767.0).astype('<i2')
-        return pcm16.tobytes()
-
-
-_runtime: CosyVoiceRuntime | None = None
-
-
-def get_cosyvoice_runtime() -> CosyVoiceRuntime:
-    global _runtime
-    if _runtime is None:
-        _runtime = CosyVoiceRuntime()
-    return _runtime
-
-
-path: /backend/app/services/live/cosyvoice2.py
-----------------------------------------
-from __future__ import annotations
-
-from typing import AsyncIterator
-
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveSynthesisRequest
-from app.services.live.cosyvoice_runtime import get_cosyvoice_runtime
-
-
-class CosyVoice2LiveEngine(LiveEngine):
-    def __init__(self) -> None:
-        self.runtime = get_cosyvoice_runtime()
-
-    async def warmup(self) -> None:
-        await self.runtime.warmup()
-
-    async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
-        seq_no = 0
-        last_chunk: bytes | None = None
-        sample_rate = self.runtime.sample_rate
-
-        async for pcm_bytes, sr in self.runtime.stream_zero_shot(
-            text=request.text,
-            voice_id=request.voice_id,
-        ):
-            sample_rate = sr
-            if last_chunk is None:
-                last_chunk = pcm_bytes
-                continue
-
-            yield LiveAudioChunk(
-                pcm_bytes=last_chunk,
-                seq_no=seq_no,
-                text=request.text,
-                sample_rate=sample_rate,
-                is_last=False,
-            )
-            seq_no += 1
-            last_chunk = pcm_bytes
-
-        if last_chunk is not None:
-            yield LiveAudioChunk(
-                pcm_bytes=last_chunk,
-                seq_no=seq_no,
-                text=request.text,
-                sample_rate=sample_rate,
-                is_last=True,
-            )
-
-
 path: /backend/app/services/live/factory.py
 ----------------------------------------
 from app.core.config import get_settings
@@ -1635,11 +1280,7 @@ def get_live_engine() -> LiveEngine:
     settings = get_settings()
     backend = settings.effective_live_backend
 
-    if backend in {'cosyvoice2', 'cosyvoice'}:
-        from app.services.live.cosyvoice2 import CosyVoice2LiveEngine
-
-        _engine = CosyVoice2LiveEngine()
-    elif backend == 'qwen':
+    if backend == 'qwen':
         from app.services.live.qwen import QwenLiveEngine
 
         _engine = QwenLiveEngine()
@@ -2124,406 +1765,6 @@ class LiveTextPreprocessor:
         return text
 
 
-path: /backend/app/services/live/qwen_realtime.py
-----------------------------------------
-from __future__ import annotations
-
-import asyncio
-import base64
-import json
-import logging
-from dataclasses import dataclass
-from typing import Any, AsyncIterator
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-
-import websockets
-
-from app.core.config import get_settings
-from app.services.live.base import LiveAudioChunk, LiveEngine, LiveStreamSession, LiveSynthesisRequest
-
-logger = logging.getLogger(__name__)
-settings = get_settings()
-
-VOICE_ALIASES = {
-    'system-neutral': 'Ryan',
-    'system-warm': 'Serena',
-    'qwen-ryan': 'Ryan',
-    'qwen-aiden': 'Aiden',
-    'qwen-vivian': 'Vivian',
-    'qwen-serena': 'Serena',
-    'qwen-uncle-fu': 'Uncle_Fu',
-    'qwen-dylan': 'Dylan',
-    'qwen-eric': 'Eric',
-    'qwen-ono-anna': 'Ono_Anna',
-    'qwen-sohee': 'Sohee',
-}
-
-STYLE_ALIASES = {
-    'tech-lora-v1': 'Speak clearly, calmly, and precisely like a technical narrator.',
-    'calm-lora-v1': 'Speak very calmly and softly.',
-    'energetic-lora-v1': 'Speak energetically, but without shouting.',
-}
-
-LANGUAGE_ALIASES = {
-    'ru': 'Russian',
-    'en': 'English',
-    'zh': 'Chinese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'de': 'German',
-    'fr': 'French',
-    'pt': 'Portuguese',
-    'es': 'Spanish',
-    'it': 'Italian',
-    'auto': 'Auto',
-}
-
-
-@dataclass(slots=True)
-class _AudioDeltaEvent:
-    pcm_bytes: bytes
-
-
-@dataclass(slots=True)
-class _AudioDoneEvent:
-    pass
-
-
-@dataclass(slots=True)
-class _ErrorEvent:
-    message: str
-
-
-@dataclass(slots=True)
-class _ClosedEvent:
-    pass
-
-
-class QwenRealtimeSession(LiveStreamSession):
-    def __init__(self) -> None:
-        self._ws: Any | None = None
-        self._recv_task: asyncio.Task[None] | None = None
-        self._events: asyncio.Queue[_AudioDeltaEvent | _AudioDoneEvent | _ErrorEvent | _ClosedEvent] = asyncio.Queue()
-        self._send_lock = asyncio.Lock()
-        self._state_lock = asyncio.Lock()
-        self._closed = False
-        self._current_signature: tuple[str, str, str, str] | None = None
-
-        self._session_created = asyncio.Event()
-        self._session_updated = asyncio.Event()
-        self._session_finished = asyncio.Event()
-
-    async def start(self) -> None:
-        if self._ws is not None:
-            return
-
-        if not settings.qwen_realtime_ws_url:
-            raise RuntimeError('QWEN_REALTIME_WS_URL is not configured')
-        if not settings.qwen_realtime_api_key:
-            raise RuntimeError('QWEN_REALTIME_API_KEY is not configured')
-
-        url = self._build_ws_url(
-            base_url=settings.qwen_realtime_ws_url,
-            model=settings.qwen_realtime_model,
-        )
-
-        self._ws = await websockets.connect(
-            url,
-            additional_headers={
-                'Authorization': f'Bearer {settings.qwen_realtime_api_key}',
-            },
-            max_size=None,
-            ping_interval=20,
-            ping_timeout=20,
-        )
-        self._recv_task = asyncio.create_task(self._recv_loop(), name='qwen-realtime-recv')
-
-        await asyncio.wait_for(self._session_created.wait(), timeout=10)
-
-    async def send_text(self, text: str, request: LiveSynthesisRequest) -> None:
-        if self._closed:
-            raise RuntimeError('Realtime session is closed')
-        if not text.strip():
-            return
-
-        await self.start()
-
-        async with self._state_lock:
-            signature = self._signature(request)
-            if signature != self._current_signature:
-                await self._update_session(request)
-                self._current_signature = signature
-
-            await self._send_json({
-                'type': 'input_text_buffer.append',
-                'text': text,
-            })
-
-    async def flush(self) -> None:
-        if self._closed or self._ws is None:
-            return
-
-        await self._send_json({
-            'type': 'input_text_buffer.commit',
-        })
-
-    async def clear(self) -> None:
-        if self._closed or self._ws is None:
-            return
-
-        await self._send_json({
-            'type': 'input_text_buffer.clear',
-        })
-
-    async def audio_chunks(self) -> AsyncIterator[LiveAudioChunk]:
-        seq_no = 0
-
-        while True:
-            event = await self._events.get()
-
-            if isinstance(event, _AudioDeltaEvent):
-                yield LiveAudioChunk(
-                    pcm_bytes=event.pcm_bytes,
-                    seq_no=seq_no,
-                    text='',
-                    sample_rate=settings.qwen_realtime_sample_rate,
-                    mime='audio/l16',
-                    is_last=False,
-                )
-                seq_no += 1
-                continue
-
-            if isinstance(event, _AudioDoneEvent):
-                # frontend ignores empty audio_b64, but this marks boundary for consumers
-                yield LiveAudioChunk(
-                    pcm_bytes=b'',
-                    seq_no=seq_no,
-                    text='',
-                    sample_rate=settings.qwen_realtime_sample_rate,
-                    mime='audio/l16',
-                    is_last=True,
-                )
-                seq_no = 0
-                continue
-
-            if isinstance(event, _ErrorEvent):
-                raise RuntimeError(event.message)
-
-            if isinstance(event, _ClosedEvent):
-                return
-
-    async def close(self) -> None:
-        if self._closed:
-            return
-
-        self._closed = True
-
-        try:
-            if self._ws is not None:
-                try:
-                    await self._send_json({'type': 'session.finish'})
-                    try:
-                        await asyncio.wait_for(self._session_finished.wait(), timeout=3)
-                    except asyncio.TimeoutError:
-                        pass
-                except Exception:
-                    pass
-
-                try:
-                    await self._ws.close()
-                except Exception:
-                    pass
-        finally:
-            if self._recv_task is not None:
-                self._recv_task.cancel()
-                try:
-                    await self._recv_task
-                except asyncio.CancelledError:
-                    pass
-            await self._events.put(_ClosedEvent())
-
-    def _signature(self, request: LiveSynthesisRequest) -> tuple[str, str, str, str]:
-        voice = VOICE_ALIASES.get(request.voice_id or '', request.voice_id or 'Ryan')
-        language = LANGUAGE_ALIASES.get((request.language or 'ru').lower(), request.language or 'Russian')
-
-        instructions = ''
-        model_name = (settings.qwen_realtime_model or '').lower()
-        if 'instruct' in model_name:
-            instructions = STYLE_ALIASES.get(request.lora_name or '', '')
-
-        return (
-            settings.qwen_realtime_model,
-            voice,
-            language,
-            instructions,
-        )
-
-    async def _update_session(self, request: LiveSynthesisRequest) -> None:
-        voice = VOICE_ALIASES.get(request.voice_id or '', request.voice_id or 'Ryan')
-        language = LANGUAGE_ALIASES.get((request.language or 'ru').lower(), request.language or 'Russian')
-
-        session_payload: dict[str, Any] = {
-            'mode': settings.qwen_realtime_mode,
-            'voice': voice,
-            'language_type': language,
-            'response_format': settings.qwen_realtime_format,
-            'sample_rate': settings.qwen_realtime_sample_rate,
-        }
-
-        model_name = (settings.qwen_realtime_model or '').lower()
-        if 'instruct' in model_name:
-            instructions = STYLE_ALIASES.get(request.lora_name or '', '')
-            if instructions:
-                session_payload['instructions'] = instructions
-                session_payload['optimize_instructions'] = True
-        elif request.lora_name:
-            logger.info(
-                'Ignoring live style "%s" because realtime model "%s" does not support instruction control',
-                request.lora_name,
-                settings.qwen_realtime_model,
-            )
-
-        self._session_updated.clear()
-        await self._send_json({
-            'type': 'session.update',
-            'session': session_payload,
-        })
-        await asyncio.wait_for(self._session_updated.wait(), timeout=10)
-
-    async def _send_json(self, payload: dict[str, Any]) -> None:
-        if self._ws is None:
-            raise RuntimeError('Realtime websocket is not connected')
-
-        payload = {
-            **payload,
-            'event_id': payload.get('event_id') or f'event_{int(asyncio.get_running_loop().time() * 1000)}',
-        }
-
-        async with self._send_lock:
-            await self._ws.send(json.dumps(payload, ensure_ascii=False))
-
-    async def _recv_loop(self) -> None:
-        assert self._ws is not None
-
-        try:
-            async for raw in self._ws:
-                if isinstance(raw, bytes):
-                    # The documented TTS realtime flow uses JSON events with base64 audio deltas.
-                    continue
-
-                data = json.loads(raw)
-                event_type = data.get('type')
-
-                if event_type == 'session.created':
-                    self._session_created.set()
-                    logger.info('Qwen realtime session.created')
-                    continue
-
-                if event_type == 'session.updated':
-                    self._session_updated.set()
-                    logger.info('Qwen realtime session.updated')
-                    continue
-
-                if event_type == 'session.finished':
-                    self._session_finished.set()
-                    logger.info('Qwen realtime session.finished')
-                    continue
-
-                if event_type == 'input_text_buffer.committed':
-                    logger.debug('Qwen realtime input_text_buffer.committed')
-                    continue
-
-                if event_type == 'input_text_buffer.cleared':
-                    logger.debug('Qwen realtime input_text_buffer.cleared')
-                    continue
-
-                if event_type == 'response.created':
-                    logger.debug('Qwen realtime response.created')
-                    continue
-
-                if event_type == 'response.output_item.added':
-                    logger.debug('Qwen realtime response.output_item.added')
-                    continue
-
-                if event_type == 'response.content_part.added':
-                    logger.debug('Qwen realtime response.content_part.added')
-                    continue
-
-                if event_type == 'response.audio.delta':
-                    delta_b64 = data.get('delta')
-                    if isinstance(delta_b64, str) and delta_b64:
-                        pcm = base64.b64decode(delta_b64)
-                        await self._events.put(_AudioDeltaEvent(pcm_bytes=pcm))
-                    continue
-
-                if event_type == 'response.audio.done':
-                    await self._events.put(_AudioDoneEvent())
-                    continue
-
-                if event_type == 'response.done':
-                    logger.debug('Qwen realtime response.done')
-                    continue
-
-                if event_type in {'error', 'response.error'}:
-                    await self._events.put(_ErrorEvent(self._extract_error_message(data)))
-                    continue
-
-                logger.debug('Qwen realtime event=%s payload=%s', event_type, data)
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.exception('Qwen realtime recv loop failed')
-            await self._events.put(_ErrorEvent(str(exc)))
-
-    @staticmethod
-    def _extract_error_message(payload: dict[str, Any]) -> str:
-        error = payload.get('error')
-        if isinstance(error, dict):
-            message = error.get('message') or error.get('code')
-            if message:
-                return str(message)
-        if isinstance(error, str):
-            return error
-        return json.dumps(payload, ensure_ascii=False)
-
-    @staticmethod
-    def _build_ws_url(base_url: str, model: str | None) -> str:
-        parsed = urlparse(base_url)
-        query = parse_qs(parsed.query, keep_blank_values=True)
-
-        if model:
-            query['model'] = [model]
-
-        return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
-
-
-class QwenRealtimeLiveEngine(LiveEngine):
-    async def warmup(self) -> None:
-        # Cloud realtime backend has no local model warmup.
-        return None
-
-    async def open_session(self) -> LiveStreamSession:
-        session = QwenRealtimeSession()
-        await session.start()
-        return session
-
-    async def synthesize_segment(self, request: LiveSynthesisRequest) -> AsyncIterator[LiveAudioChunk]:
-        """
-        Compatibility path for single-request use.
-        The main application uses open_session() and keeps the session persistent.
-        """
-        session = QwenRealtimeSession()
-        await session.start()
-        try:
-            await session.send_text(request.text, request)
-            await session.flush()
-            async for chunk in session.audio_chunks():
-                yield chunk
-        finally:
-            await session.close()
-
-
 path: /backend/app/services/live/qwen.py
 ----------------------------------------
 from __future__ import annotations
@@ -2652,7 +1893,7 @@ class LiveTextBuffer:
         return (time.monotonic() - self.last_update_ts) >= (settings.live_buffer_idle_ms / 1000.0)
 
     def _extract_ready(self, *, force: bool) -> list[BufferedSegment]:
-        text = self.pending_text.strip()
+        text = re.sub(r'\s+', ' ', self.pending_text).strip()
         if not text:
             self.pending_text = ''
             return []
@@ -2669,25 +1910,30 @@ class LiveTextBuffer:
     def _split_ready(self, text: str) -> tuple[list[str], str]:
         ready: list[str] = []
         remainder = text
+        min_len = settings.live_buffer_min_chars
 
         while remainder:
-            hard_match = re.match(r'^(.*?[.!?;:])(\s+|$)', remainder, flags=re.DOTALL)
+            hard_match = re.match(r'^(.*?[.!?])(\s+|$)', remainder, flags=re.DOTALL)
             if hard_match:
                 segment = hard_match.group(1).strip()
-                if segment:
-                    ready.extend(self._chunk_text(segment))
-                remainder = remainder[hard_match.end():].strip()
-                continue
+                tail = remainder[hard_match.end():].strip()
 
-            if len(remainder) >= settings.live_buffer_max_chars:
-                head, tail = self._take_soft_chunk(remainder)
+                if len(segment) >= min_len or not tail:
+                    ready.extend(self._chunk_text(segment))
+                    remainder = tail
+                    continue
+
+            split_pos = self._find_soft_split(remainder)
+            if split_pos is not None:
+                head = remainder[:split_pos].strip()
+                tail = remainder[split_pos:].strip()
                 if head:
                     ready.extend(self._chunk_text(head))
-                remainder = tail
-                continue
+                    remainder = tail
+                    continue
 
-            if len(remainder) >= settings.live_buffer_soft_flush_chars and re.search(r'[,)\]]\s*$|\s+$', remainder):
-                head, tail = self._take_soft_chunk(remainder)
+            if len(remainder) >= settings.live_buffer_max_chars:
+                head, tail = self._take_force_chunk(remainder)
                 if head:
                     ready.extend(self._chunk_text(head))
                 remainder = tail
@@ -2702,8 +1948,8 @@ class LiveTextBuffer:
         if not text:
             return []
 
-        target = settings.live_buffer_target_chars
         max_len = settings.live_buffer_max_chars
+        min_len = settings.live_buffer_min_chars
 
         if len(text) <= max_len:
             return [text]
@@ -2715,38 +1961,83 @@ class LiveTextBuffer:
                 chunks.append(rest.strip())
                 break
 
-            window = rest[:max_len]
-            split_pos = window.rfind(' ', 0, target + 1)
-            if split_pos < max(8, target // 2):
-                split_pos = window.rfind(' ')
-            if split_pos <= 0:
-                split_pos = max_len
+            head, tail = self._take_force_chunk(rest)
+            if not head:
+                break
 
-            head = rest[:split_pos].strip()
-            rest = rest[split_pos:].strip()
+            chunks.append(head)
+            rest = tail
 
-            if head:
-                chunks.append(head)
+        if len(chunks) >= 2 and len(chunks[-1]) < min_len:
+            chunks[-2] = f'{chunks[-2]} {chunks[-1]}'.strip()
+            chunks.pop()
 
-        return chunks
+        return [chunk for chunk in chunks if chunk]
 
-    def _take_soft_chunk(self, text: str) -> tuple[str, str]:
+    def _find_soft_split(self, text: str) -> int | None:
+        if len(text) < settings.live_buffer_soft_flush_chars:
+            return None
+
+        window = text[: min(len(text), settings.live_buffer_max_chars)]
+        min_len = min(settings.live_buffer_min_chars, len(window))
+        target = min(settings.live_buffer_target_chars, len(window))
+
+        punctuation_candidates: list[int] = []
+        for match in re.finditer(r'[,:;)\]]\s+', window):
+            split_pos = match.end()
+            if min_len <= split_pos <= len(window):
+                punctuation_candidates.append(split_pos)
+
+        sentence_candidates: list[int] = []
+        for match in re.finditer(r'[.!?]\s+', window):
+            split_pos = match.end()
+            if min_len <= split_pos <= len(window):
+                sentence_candidates.append(split_pos)
+
+        if sentence_candidates:
+            return min(sentence_candidates, key=lambda pos: abs(pos - target))
+
+        if punctuation_candidates:
+            return min(punctuation_candidates, key=lambda pos: abs(pos - target))
+
+        space_candidates: list[int] = []
+        for match in re.finditer(r'\s+', window):
+            split_pos = match.start()
+            if min_len <= split_pos <= len(window):
+                space_candidates.append(split_pos)
+
+        if space_candidates:
+            return min(space_candidates, key=lambda pos: abs(pos - target))
+
+        return None
+
+    def _take_force_chunk(self, text: str) -> tuple[str, str]:
+        text = re.sub(r'\s+', ' ', text).strip()
         if len(text) <= settings.live_buffer_max_chars:
-            return text.strip(), ''
+            return text, ''
 
-        target = settings.live_buffer_target_chars
-        window = text[:settings.live_buffer_max_chars]
+        window = text[: settings.live_buffer_max_chars]
+        min_len = min(settings.live_buffer_min_chars, len(window))
+        target = min(settings.live_buffer_target_chars, len(window))
 
-        split_pos = -1
-        for token in [', ', ') ', '] ', ' ']:
-            split_pos = max(split_pos, window.rfind(token, 0, target + 1))
-        if split_pos < max(8, target // 2):
-            split_pos = window.rfind(' ')
-        if split_pos <= 0:
-            split_pos = settings.live_buffer_target_chars
+        space_candidates = [
+            match.start()
+            for match in re.finditer(r'\s+', window)
+            if min_len <= match.start() <= len(window)
+        ]
+
+        if space_candidates:
+            split_pos = min(space_candidates, key=lambda pos: abs(pos - target))
+        else:
+            split_pos = settings.live_buffer_max_chars
 
         head = text[:split_pos].strip()
         tail = text[split_pos:].strip()
+
+        if not head:
+            head = text[: settings.live_buffer_max_chars].strip()
+            tail = text[settings.live_buffer_max_chars :].strip()
+
         return head, tail
 
     def _to_segment(self, text: str) -> BufferedSegment:
@@ -3340,444 +2631,33 @@ def get_qwen_runtime() -> QwenRuntime:
 
 path: /backend/app/services/storage.py
 ----------------------------------------
+import re
 import shutil
 from pathlib import Path
 
 from fastapi import UploadFile
 
-from app.core.config import get_settings
 
-settings = get_settings()
+def _safe_filename(filename: str | None) -> str:
+    raw = Path(filename or 'upload.bin').name
+    safe = re.sub(r'[^0-9A-Za-zА-Яа-я._-]+', '_', raw).strip('._')
+    return safe or 'upload.bin'
 
 
 def save_upload(upload: UploadFile, target_dir: Path) -> Path:
+    target_dir = target_dir.resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / upload.filename
+
+    safe_name = _safe_filename(upload.filename)
+    target_path = (target_dir / safe_name).resolve()
+
+    if target_path.parent != target_dir:
+        raise ValueError('Unsafe upload path')
+
     with target_path.open('wb') as buffer:
         shutil.copyfileobj(upload.file, buffer)
+
     return target_path
-
-
-path: /backend/app/services/tts/base.py
-----------------------------------------
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import AsyncIterator
-
-
-@dataclass(slots=True)
-class SynthRequest:
-    text: str
-    voice_id: str | None = None
-    lora_name: str | None = None
-    language: str = 'ru'
-
-
-@dataclass(slots=True)
-class SynthChunk:
-    wav_bytes: bytes
-    seq_no: int
-    text: str
-    is_last: bool
-
-
-class TTSEngine(ABC):
-    @abstractmethod
-    async def warmup(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
-        raise NotImplementedError
-
-    @abstractmethod
-    async def synthesize_preview(self, request: SynthRequest) -> bytes:
-        raise NotImplementedError
-
-
-path: /backend/app/services/tts/factory.py
-----------------------------------------
-from app.core.config import get_settings
-from app.services.tts.base import TTSEngine
-from app.services.tts.mock import MockTTSEngine
-from app.services.tts.qwen import QwenTTSEngine
-
-
-_engine: TTSEngine | None = None
-
-
-def get_tts_engine() -> TTSEngine:
-    global _engine
-    if _engine is not None:
-        return _engine
-    settings = get_settings()
-    if settings.tts_backend == 'qwen':
-        _engine = QwenTTSEngine()
-    else:
-        _engine = MockTTSEngine()
-    return _engine
-
-
-path: /backend/app/services/tts/mock.py
-----------------------------------------
-from __future__ import annotations
-
-import asyncio
-import io
-import math
-import struct
-import wave
-from typing import AsyncIterator
-
-from app.core.config import get_settings
-from app.services.tts.base import SynthChunk, SynthRequest, TTSEngine
-
-
-class MockTTSEngine(TTSEngine):
-    def __init__(self) -> None:
-        self.settings = get_settings()
-        self._is_warm = False
-
-    async def warmup(self) -> None:
-        if self._is_warm:
-            return
-        await asyncio.sleep(0.02)
-        self._is_warm = True
-
-    async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
-        await self.warmup()
-        words = request.text.split()
-        segments = [' '.join(words[i:i + 8]) for i in range(0, max(len(words), 1), 8)] or [request.text]
-        for index, segment in enumerate(segments):
-            await asyncio.sleep(0.03)
-            # Yield raw PCM (S16LE) for streaming
-            yield SynthChunk(
-                wav_bytes=self._generate_tone_raw_pcm(segment, duration=min(0.45, max(0.12, len(segment) / 90))),
-                seq_no=index,
-                text=segment,
-                is_last=index == len(segments) - 1,
-            )
-
-    async def synthesize_preview(self, request: SynthRequest) -> bytes:
-        await self.warmup()
-        duration = min(2.2, max(0.35, len(request.text) / 65))
-        # Keep WAV for preview (standard <audio> compatibility)
-        pcm = self._generate_tone_raw_pcm(request.text, duration=duration)
-        return self._pcm_to_wav(pcm)
-
-    def _generate_tone_raw_pcm(self, seed_text: str, duration: float) -> bytes:
-        sample_rate = self.settings.audio_sample_rate
-        frames = int(sample_rate * duration)
-        base_freq = 320 + (sum(ord(char) for char in seed_text) % 220)
-        amplitude = 12000
-        raw_data = []
-        for i in range(frames):
-            envelope = 1.0
-            if i < sample_rate * 0.01:
-                envelope = i / (sample_rate * 0.01)
-            elif i > frames - sample_rate * 0.02:
-                envelope = max(0.0, (frames - i) / (sample_rate * 0.02))
-            value = int(amplitude * envelope * math.sin(2 * math.pi * base_freq * (i / sample_rate)))
-            raw_data.append(struct.pack('<h', value))
-        return b''.join(raw_data)
-
-    def _pcm_to_wav(self, pcm_data: bytes, sample_rate: int | None = None) -> bytes:
-        sr = sample_rate or self.settings.audio_sample_rate
-        buffer = io.BytesIO()
-        with wave.open(buffer, 'wb') as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sr)
-            wav_file.writeframes(pcm_data)
-        return buffer.getvalue()
-
-
-path: /backend/app/services/tts/qwen.py
-----------------------------------------
-from __future__ import annotations
-
-import asyncio
-import inspect
-import io
-import logging
-import wave
-from typing import AsyncIterator
-
-import numpy as np
-import soundfile as sf
-
-from app.core.config import get_settings
-from app.services.tts.base import SynthChunk, SynthRequest, TTSEngine
-
-logger = logging.getLogger(__name__)
-
-
-VOICE_ALIASES = {
-    'system-neutral': 'Ryan',
-    'system-warm': 'Serena',
-    'qwen-ryan': 'Ryan',
-    'qwen-aiden': 'Aiden',
-    'qwen-vivian': 'Vivian',
-    'qwen-serena': 'Serena',
-    'qwen-uncle-fu': 'Uncle_Fu',
-    'qwen-dylan': 'Dylan',
-    'qwen-eric': 'Eric',
-    'qwen-ono-anna': 'Ono_Anna',
-    'qwen-sohee': 'Sohee',
-}
-
-STYLE_ALIASES = {
-    'tech-lora-v1': 'Четко, спокойно, размеренно, как технический диктор. Английские термины произноси разборчиво.',
-    'calm-lora-v1': 'Очень спокойно и мягко, без спешки.',
-    'energetic-lora-v1': 'Живой и энергичный темп, но без крика.',
-}
-
-LANGUAGE_ALIASES = {
-    'ru': 'Russian',
-    'en': 'English',
-    'zh': 'Chinese',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'de': 'German',
-    'fr': 'French',
-    'pt': 'Portuguese',
-    'es': 'Spanish',
-    'it': 'Italian',
-    'auto': 'Auto',
-}
-
-
-def _normalize_name(value: str) -> str:
-    return value.strip().lower().replace(' ', '_')
-
-
-class QwenTTSEngine(TTSEngine):
-    def __init__(self) -> None:
-        self.settings = get_settings()
-        self._model = None
-        self._sample_rate = 24000
-        self._lock = asyncio.Lock()
-        self._semaphore = asyncio.Semaphore(max(1, self.settings.qwen_max_concurrent))
-        self._is_warm = False
-        self._supported_speakers: dict[str, str] = {}
-        self._supported_languages: dict[str, str] = {}
-        self._instruction_kwarg: str | None = None
-
-    async def warmup(self) -> None:
-        await self._ensure_model()
-        self._is_warm = True
-
-    async def synthesize_stream(self, request: SynthRequest) -> AsyncIterator[SynthChunk]:
-        wav_bytes = await self._generate_wav_bytes(request)
-
-        with wave.open(io.BytesIO(wav_bytes), 'rb') as wav_file:
-            frames = wav_file.readframes(wav_file.getnframes())
-
-        chunk_size = 3200  # ~66 ms for 24kHz S16 mono
-        parts = [frames[i:i + chunk_size] for i in range(0, len(frames), chunk_size)]
-
-        for seq_no, part in enumerate(parts):
-            yield SynthChunk(
-                wav_bytes=part,
-                seq_no=seq_no,
-                text=request.text,
-                is_last=seq_no == len(parts) - 1,
-            )
-
-    async def synthesize_preview(self, request: SynthRequest) -> bytes:
-        return await self._generate_wav_bytes(request)
-
-    async def _generate_wav_bytes(self, request: SynthRequest) -> bytes:
-        await self._ensure_model()
-        async with self._semaphore:
-            return await asyncio.to_thread(self._generate_wav_bytes_sync, request)
-
-    async def _ensure_model(self) -> None:
-        if self._model is not None:
-            return
-
-        async with self._lock:
-            if self._model is not None:
-                return
-
-            try:
-                from qwen_tts import Qwen3TTSModel
-            except Exception as exc:
-                raise RuntimeError(
-                    'Python package "qwen-tts" is not available in the API container.'
-                ) from exc
-
-            try:
-                import torch
-            except Exception as exc:
-                raise RuntimeError('PyTorch is not available in the API container.') from exc
-
-            dtype_map = {
-                'bfloat16': torch.bfloat16,
-                'float16': torch.float16,
-                'float32': torch.float32,
-            }
-            dtype = dtype_map.get(self.settings.qwen_dtype.lower(), torch.bfloat16)
-
-            logger.info(
-                'Loading Qwen3-TTS model=%s device=%s dtype=%s attn=%s',
-                self.settings.qwen_model_name,
-                self.settings.qwen_device,
-                self.settings.qwen_dtype,
-                self.settings.qwen_attn_implementation,
-            )
-
-            try:
-                self._model = Qwen3TTSModel.from_pretrained(
-                    self.settings.qwen_model_name,
-                    device_map=self.settings.qwen_device,
-                    dtype=dtype,
-                    attn_implementation=self.settings.qwen_attn_implementation,
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    f'Failed to load Qwen model "{self.settings.qwen_model_name}" on device '
-                    f'"{self.settings.qwen_device}": {exc}'
-                ) from exc
-
-            try:
-                speakers = list(self._model.get_supported_speakers())
-                self._supported_speakers = {
-                    _normalize_name(speaker): speaker for speaker in speakers
-                }
-                if speakers:
-                    logger.info('Qwen speakers available: %s', ', '.join(speakers))
-            except Exception:
-                logger.warning('Could not fetch supported speakers from qwen-tts model')
-                self._supported_speakers = {}
-
-            try:
-                languages = list(self._model.get_supported_languages())
-                self._supported_languages = {
-                    _normalize_name(language): language for language in languages
-                }
-                if languages:
-                    logger.info('Qwen languages available: %s', ', '.join(languages))
-            except Exception:
-                logger.warning('Could not fetch supported languages from qwen-tts model')
-                self._supported_languages = {}
-
-            try:
-                signature = inspect.signature(self._model.generate_custom_voice)
-                params = signature.parameters
-                if 'instruct' in params:
-                    self._instruction_kwarg = 'instruct'
-                elif 'instruction' in params:
-                    self._instruction_kwarg = 'instruction'
-                else:
-                    self._instruction_kwarg = None
-            except Exception:
-                self._instruction_kwarg = 'instruct'
-
-    def _resolve_speaker(self, voice_id: str | None) -> str:
-        requested = VOICE_ALIASES.get(voice_id or '', voice_id or 'Ryan')
-        if not self._supported_speakers:
-            return requested
-
-        normalized = _normalize_name(requested)
-        matched = self._supported_speakers.get(normalized)
-        if matched:
-            return matched
-
-        fallback = self._supported_speakers.get('ryan')
-        if fallback:
-            logger.warning(
-                'Requested speaker "%s" is not supported by loaded model. Fallback to "%s".',
-                requested,
-                fallback,
-            )
-            return fallback
-
-        return requested
-
-    def _resolve_language(self, language: str | None) -> str:
-        requested = LANGUAGE_ALIASES.get((language or 'ru').lower(), language or 'Russian')
-        if not self._supported_languages:
-            return requested
-
-        normalized = _normalize_name(requested)
-        matched = self._supported_languages.get(normalized)
-        if matched:
-            return matched
-
-        auto = self._supported_languages.get('auto')
-        if auto:
-            logger.warning(
-                'Requested language "%s" is not supported by loaded model. Fallback to "%s".',
-                requested,
-                auto,
-            )
-            return auto
-
-        return requested
-
-    def _generate_wav_bytes_sync(self, request: SynthRequest) -> bytes:
-        if self._model is None:
-            raise RuntimeError('Qwen model is not loaded.')
-
-        speaker = self._resolve_speaker(request.voice_id)
-        language = self._resolve_language(request.language)
-        instruct_text = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
-
-        logger.info(
-            'Qwen synth start speaker=%s language=%s chars=%s lora=%s',
-            speaker,
-            language,
-            len(request.text),
-            request.lora_name,
-        )
-
-        kwargs = {
-            'text': request.text.strip(),
-            'language': language,
-            'speaker': speaker,
-            'max_new_tokens': 2048,
-        }
-
-        if instruct_text and self._instruction_kwarg:
-            kwargs[self._instruction_kwarg] = instruct_text.strip()
-
-        try:
-            wavs, sr = self._model.generate_custom_voice(**kwargs)
-        except Exception as exc:
-            logger.exception('Qwen generate_custom_voice failed')
-            raise RuntimeError(
-                f'Qwen synth failed for speaker="{speaker}", language="{language}": {exc}'
-            ) from exc
-
-        self._sample_rate = int(sr)
-
-        if isinstance(wavs, np.ndarray):
-            audio = wavs[0] if wavs.ndim > 1 else wavs
-        elif isinstance(wavs, list):
-            if not wavs:
-                raise RuntimeError('Qwen returned empty wav list')
-            audio = wavs[0]
-        else:
-            raise TypeError(f'Unexpected wavs type: {type(wavs)}')
-
-        if isinstance(audio, list):
-            audio = np.asarray(audio, dtype=np.float32)
-        elif not isinstance(audio, np.ndarray):
-            audio = np.asarray(audio, dtype=np.float32)
-
-        audio = audio.astype(np.float32, copy=False)
-
-        if audio.ndim > 1:
-            audio = np.mean(audio, axis=-1).astype(np.float32)
-
-        logger.info('Qwen synth done sr=%s samples=%s', sr, audio.shape[0] if audio.ndim else 0)
-
-        buffer = io.BytesIO()
-        sf.write(buffer, audio, sr, format='WAV', subtype='PCM_16')
-        return buffer.getvalue()
 
 
 path: /backend/app/trainer/runner.py
@@ -3951,98 +2831,6 @@ RUN pip install --no-cache-dir \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
 
-path: /backend/Dockerfile.base.cosyvoice
-----------------------------------------
-FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
-
-ENV DEBIAN_FRONTEND=noninteractive \
-    CUDA_HOME=/usr/local/cuda \
-    PATH=/usr/local/cuda/bin:${PATH} \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH} \
-    PIP_NO_CACHE_DIR=1 \
-    PYTHONUNBUFFERED=1 \
-    COSYVOICE_ROOT=/opt/CosyVoice \
-    PYTHONPATH=/opt/CosyVoice:/opt/CosyVoice/third_party/Matcha-TTS
-
-WORKDIR /opt/cosyvoice-base
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-venv \
-    python3-pip \
-    python3-dev \
-    build-essential \
-    git \
-    ca-certificates \
-    ffmpeg \
-    sox \
-    libsox-dev \
-    libsndfile1 \
-    && ldconfig \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN ln -sf /usr/bin/python3 /usr/bin/python && \
-    python -m pip install --upgrade "pip<25.1" "setuptools<82" wheel packaging
-
-RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git ${COSYVOICE_ROOT} && \
-    cd ${COSYVOICE_ROOT} && \
-    git submodule update --init --recursive
-
-RUN python -m pip install --no-build-isolation openai-whisper==20231117
-
-RUN grep -Ev '^(openai-whisper==20231117|torch([<=> ].*)?|torchaudio([<=> ].*)?|torchvision([<=> ].*)?)$' \
-      ${COSYVOICE_ROOT}/requirements.txt > /tmp/cosyvoice-requirements.txt && \
-    python -m pip install -r /tmp/cosyvoice-requirements.txt
-
-RUN python -m pip uninstall -y \
-      torch torchvision torchaudio \
-      nvidia-cusparselt-cu12 \
-      numpy \
-      onnxruntime \
-      onnxruntime-gpu || true && \
-    python -m pip install --force-reinstall \
-      torch==2.7.1 \
-      torchvision==0.22.1 \
-      torchaudio==2.7.1 \
-      --index-url https://download.pytorch.org/whl/cu128 && \
-    python -m pip install --force-reinstall "numpy<2" && \
-    python -m pip install --force-reinstall "onnxruntime-gpu==1.20.1"
-
-RUN python -m pip show \
-      numpy \
-      torch \
-      torchvision \
-      torchaudio \
-      onnxruntime-gpu \
-      nvidia-cusparselt-cu12
-
-RUN python - <<'PY'
-import sys
-import numpy
-import torch
-import onnxruntime
-
-print("python:", sys.version)
-print("numpy:", numpy.__version__)
-print("onnxruntime:", onnxruntime.__version__)
-print("torch:", torch.__version__)
-print("cuda:", torch.version.cuda)
-print("cuda available:", torch.cuda.is_available())
-
-if torch.cuda.is_available():
-    print("device:", torch.cuda.get_device_name(0))
-    print("capability:", torch.cuda.get_device_capability(0))
-
-assert numpy.__version__.startswith("1."), f"unexpected numpy version: {numpy.__version__}"
-assert onnxruntime.__version__.startswith("1.20."), f"unexpected onnxruntime version: {onnxruntime.__version__}"
-assert torch.__version__.startswith("2.7.1"), f"unexpected torch version: {torch.__version__}"
-assert str(torch.version.cuda).startswith("12.8"), f"unexpected torch cuda: {torch.version.cuda}"
-
-import whisper
-print("whisper:", whisper.__file__)
-PY
-
-
 path: /backend/Dockerfile.base.flash
 ----------------------------------------
 FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04
@@ -4110,40 +2898,6 @@ except Exception as e:
 PY
 
 
-path: /backend/Dockerfile.live
-----------------------------------------
-FROM tts-cosyvoice-base:cu128
-
-WORKDIR /app
-
-RUN python -m pip install \
-    fastapi \
-    "uvicorn[standard]" \
-    sqlalchemy \
-    "psycopg[binary]" \
-    pydantic-settings \
-    python-multipart \
-    python-dotenv
-
-COPY app ./app
-
-ENV PREVIEW_BACKEND=mock \
-    LIVE_BACKEND=cosyvoice2 \
-    COSYVOICE_ROOT=/opt/CosyVoice \
-    COSYVOICE_MODEL_DIR=/data/models/CosyVoice2-0.5B \
-    COSYVOICE_PROMPT_DIR=/data/cosyvoice_prompts \
-    COSYVOICE_DEFAULT_PROMPT_NAME=default \
-    COSYVOICE_STREAM=true \
-    COSYVOICE_TEXT_FRONTEND=true \
-    COSYVOICE_SPEED=1.0 \
-    COSYVOICE_FP16=true \
-    COSYVOICE_LOAD_JIT=false \
-    COSYVOICE_LOAD_TRT=false \
-    COSYVOICE_LOAD_VLLM=false
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-
 path: /backend/Dockerfile.trainer
 ----------------------------------------
 FROM tts-ml-base:cu128-flash
@@ -4189,19 +2943,32 @@ def db_session(engine):
 
 path: /backend/tests/test_api.py
 ----------------------------------------
+import io
+import os
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+os.environ['TESTING'] = '1'
+os.environ['INIT_DB'] = 'false'
+os.environ['TTS_BACKEND'] = 'mock'
+os.environ['PREVIEW_BACKEND'] = 'mock'
+os.environ['LIVE_BACKEND'] = 'mock'
+
+from app.api.deps import get_db
 from app.main import app
 from app.models.base import Base
-from app.api.deps import get_db
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_api.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+TEST_DB_PATH = Path(__file__).with_name('test_api.db')
+SQLALCHEMY_DATABASE_URL = f'sqlite:///{TEST_DB_PATH}'
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={'check_same_thread': False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-@pytest.fixture(scope="module")
+
+@pytest.fixture(scope='module')
 def db_session():
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
@@ -4210,70 +2977,74 @@ def db_session():
     finally:
         db.close()
         Base.metadata.drop_all(bind=engine)
+        if TEST_DB_PATH.exists():
+            TEST_DB_PATH.unlink()
 
-@pytest.fixture(scope="module")
+
+@pytest.fixture(scope='module')
 def client(db_session):
     def override_get_db():
         try:
             yield db_session
         finally:
             pass
+
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
 
+
 def test_health(client):
-    response = client.get("/api/v1/health")
+    response = client.get('/api/v1/health')
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {'status': 'ok'}
+
 
 def test_list_voices(client):
-    response = client.get("/api/v1/voices")
+    response = client.get('/api/v1/voices')
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
+
 def test_meta(client):
-    response = client.get("/api/v1/meta")
+    response = client.get('/api/v1/meta')
     assert response.status_code == 200
-    assert "app_title" in response.json()
-    assert "tts_backend" in response.json()
+    assert 'app_title' in response.json()
+    assert 'tts_backend' in response.json()
+
 
 def test_dataset_upload_path_traversal(client):
-    # Prepare a fake zip file
-    import io
-    file_content = b"fake zip content"
+    file_content = b'fake zip content'
     file = io.BytesIO(file_content)
 
-    # Try with malicious speaker_name
     response = client.post(
-        "/api/v1/training/datasets",
+        '/api/v1/training/datasets',
         data={
-            "name": "Traversal Test",
-            "speaker_name": "../../etc/passwd",
-            "language": "ru",
-            "note": "testing path traversal"
+            'name': 'Traversal Test',
+            'speaker_name': '../../etc/passwd',
+            'language': 'ru',
+            'note': 'testing path traversal',
         },
-        files={"file": ("test.zip", file, "application/zip")}
+        files={'file': ('../../evil.zip', file, 'application/zip')},
     )
 
     assert response.status_code == 200
     data = response.json()
-    # The saved file_path should NOT contain ../../etc/passwd
-    # Our sanitizer should have converted it to something safe like "etcpasswd" or similar
-    assert "../../" not in data["file_path"]
-    assert "etcpasswd" in data["file_path"] or "etc_passwd" in data["file_path"]
+    assert '../../' not in data['file_path']
+    assert '..' not in Path(data['file_path']).name
+    assert Path(data['file_path']).name == 'evil.zip'
+
 
 def test_dataset_upload_invalid_extension(client):
-    import io
-    file = io.BytesIO(b"not a zip")
+    file = io.BytesIO(b'not a zip')
     response = client.post(
-        "/api/v1/training/datasets",
-        data={"name": "Invalid Ext", "speaker_name": "ivan", "language": "ru"},
-        files={"file": ("test.txt", file, "text/plain")}
+        '/api/v1/training/datasets',
+        data={'name': 'Invalid Ext', 'speaker_name': 'ivan', 'language': 'ru'},
+        files={'file': ('test.txt', file, 'text/plain')},
     )
     assert response.status_code == 400
-    assert "Invalid file format" in response.json()["detail"]
+    assert 'Invalid file format' in response.json()['detail']
 
 
 path: /backend/tests/test_preprocessor.py
@@ -4379,43 +3150,6 @@ services:
       - "8000:8000"
     gpus: all
 
-  live_tts:
-    image: tts-live-cosyvoice:dev
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.live
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tts_admin:tts_admin_change_me@postgres:5432/tts_admin}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      DATA_DIR: /data
-      HF_HOME: /data/huggingface
-      HUGGINGFACE_HUB_CACHE: /data/huggingface/hub
-      INIT_DB: "false"
-      PREVIEW_BACKEND: mock
-      LIVE_BACKEND: cosyvoice2
-      COSYVOICE_MODEL_DIR: /data/models/CosyVoice2-0.5B
-      COSYVOICE_PROMPT_DIR: /data/cosyvoice_prompts
-      COSYVOICE_DEFAULT_PROMPT_NAME: default
-      COSYVOICE_STREAM: "true"
-      COSYVOICE_TEXT_FRONTEND: "true"
-      COSYVOICE_SPEED: "1.0"
-      COSYVOICE_FP16: "true"
-      COSYVOICE_LOAD_JIT: "false"
-      COSYVOICE_LOAD_TRT: "false"
-      COSYVOICE_LOAD_VLLM: "false"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    volumes:
-      - ./data:/data
-    gpus: all
-
   trainer:
     image: tts-trainer:dev
     build:
@@ -4448,7 +3182,6 @@ services:
       context: ./frontend
     depends_on:
       - api
-      - live_tts
     ports:
       - "8080:80"
 
@@ -4689,7 +3422,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const client = {
   health: () => api<{ status: string }>('/api/v1/health'),
-  meta: () => api<Record<string, string>>('/api/v1/meta'),
+  meta: () => api<Record<string, unknown>>('/api/v1/meta'),
   listDictionaries: () => api<Dictionary[]>('/api/v1/dictionaries'),
   createDictionary: (payload: { name: string; slug: string; description?: string; is_default?: boolean }) =>
     api<Dictionary>('/api/v1/dictionaries', {
@@ -5008,7 +3741,7 @@ import { client } from '../api/client'
 
 export function DashboardPage() {
   const [health, setHealth] = useState<string>('loading')
-  const [meta, setMeta] = useState<Record<string, string>>({})
+  const [meta, setMeta] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
     client.health().then((data) => setHealth(data.status)).catch(() => setHealth('error'))
@@ -5181,7 +3914,7 @@ export function TestingPage() {
   const [previewProcessedText, setPreviewProcessedText] = useState('')
   const [isPreviewing, setIsPreviewing] = useState(false)
 
-  const [liveDraft, setLiveDraft] = useState('Это live режим. Текст попадает в буфер частями и быстро начинает озвучиваться.')
+  const [liveDraft, setLiveDraft] = useState('Live через CosyVoice отключен. Сейчас используется mock backend для проверки буфера, событий и WebSocket.')
   const [liveStatus, setLiveStatus] = useState('disconnected')
   const [pendingText, setPendingText] = useState('')
   const [pendingChars, setPendingChars] = useState(0)
@@ -5524,7 +4257,7 @@ export function TestingPage() {
       </section>
 
       <section className="card wide">
-        <h2>Live mode — минимальная задержка через буфер</h2>
+        <h2>Live mode — CosyVoice отключен, сейчас работает mock backend</h2>
 
         <label className="row" style={{ gap: '8px', alignItems: 'center' }}>
           <input
@@ -5762,8 +4495,8 @@ server {
 
 
 === SUMMARY ===
-included: 78
-skipped(binary): 0
+included: 66
+skipped(binary): 1
 skipped(size): 0
 skipped(ext): 0
-totalBytes(approx): 179705
+totalBytes(approx): 138525
