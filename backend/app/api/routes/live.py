@@ -91,6 +91,7 @@ async def enqueue_live(request: Request, payload: LiveEnqueueRequest) -> dict[st
             voice_id=payload.voice_id,
             lora_name=payload.lora_name,
             language=payload.language,
+            preprocess_profile=payload.preprocess_profile,
         )
     except KeyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -111,6 +112,7 @@ async def append_buffer(request: Request, payload: LiveBufferAppendRequest) -> d
             voice_id=payload.voice_id,
             lora_name=payload.lora_name,
             language=payload.language,
+            preprocess_profile=payload.preprocess_profile,
             flush=payload.flush,
         )
     except KeyError as exc:
@@ -190,6 +192,7 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
                     voice_id=data.get('voice_id'),
                     lora_name=data.get('lora_name'),
                     language=language,
+                    preprocess_profile=data.get('preprocess_profile'),
                     flush=bool(data.get('flush', False)),
                 )
 
@@ -206,6 +209,7 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
                     voice_id=data.get('voice_id'),
                     lora_name=data.get('lora_name'),
                     language=language,
+                    preprocess_profile=data.get('preprocess_profile'),
                 )
 
             elif msg_type == 'flush':

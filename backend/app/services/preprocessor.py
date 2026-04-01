@@ -4,10 +4,10 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.dictionary import Dictionary
+from app.models.dictionary import Dictionary, DictionaryEntry
 
 
 @dataclass(slots=True)
@@ -71,26 +71,29 @@ class TechnicalPreprocessor:
             (r"\bJWT\b", "джей дабл ю ти"),
             (r"\bOAuth\b", "оу аут"),
             (r"\bnginx\b", "энджин икс"),
+            (r"\buseEffect\b", "юз эффект"),
+            (r"\buseState\b", "юз стейт"),
+            (r"\b__init__\b", "андерскор андерскор инит андерскор андерскор"),
         ]
 
         self.general_numeric_replacements: list[tuple[str, str]] = [
-            (r"(?<=\d)\s*кг\b", " килограмм"),
-            (r"(?<=\d)\s*г\b", " грамм"),
-            (r"(?<=\d)\s*см\b", " сантиметр"),
-            (r"(?<=\d)\s*мм\b", " миллиметр"),
-            (r"(?<=\d)\s*км\b", " километр"),
-            (r"(?<=\d)\s*м\b", " метр"),
-            (r"(?<=\d)\s*мс\b", " миллисекунд"),
-            (r"(?<=\d)\s*с\b", " секунд"),
-            (r"(?<=\d)\s*мин\b", " минут"),
-            (r"(?<=\d)\s*ч\b", " часов"),
-            (r"(?<=\d)\s*руб\.(?=\s|$)", " рублей"),
-            (r"(?<=\d)\s*коп\.(?=\s|$)", " копеек"),
-            (r"(?<=\d)\s*₽", " рублей"),
-            (r"(?<=\d)\s*%", " процентов"),
-            (r"(?<=\d)\s*млн\b", " миллионов"),
-            (r"(?<=\d)\s*млрд\b", " миллиардов"),
-            (r"(?<=\d)\s*тыс\.(?=\s|$)", " тысяч"),
+            (r"(\d)\s*кг\b", r"\1 килограмм"),
+            (r"(\d)\s*г\b", r"\1 грамм"),
+            (r"(\d)\s*см\b", r"\1 сантиметр"),
+            (r"(\d)\s*мм\b", r"\1 миллиметр"),
+            (r"(\d)\s*км\b", r"\1 километр"),
+            (r"(\d)\s*м\b", r"\1 метр"),
+            (r"(\d)\s*мс\b", r"\1 миллисекунд"),
+            (r"(\d)\s*с\b", r"\1 секунд"),
+            (r"(\d)\s*мин\b", r"\1 минут"),
+            (r"(\d)\s*ч\b", r"\1 часов"),
+            (r"(\d)\s*руб\.(?=\s|$)", r"\1 рублей"),
+            (r"(\d)\s*коп\.(?=\s|$)", r"\1 копеек"),
+            (r"(\d)\s*₽", r"\1 рублей"),
+            (r"(\d)\s*%", r"\1 процентов"),
+            (r"(\d)\s*млн\b", r"\1 миллионов"),
+            (r"(\d)\s*млрд\b", r"\1 миллиардов"),
+            (r"(\d)\s*тыс\.(?=\s|$)", r"\1 тысяч"),
         ]
 
     def process(
@@ -102,16 +105,16 @@ class TechnicalPreprocessor:
     ) -> ProcessedPayload:
         original_text = text
 
-        normalized = self._normalize(text)
-        normalized = self._structural_cleanup(normalized, profile)
-        normalized = self._apply_profile_rules(normalized, profile)
-        normalized = self._apply_dictionary(db, normalized, dictionary_id)
-        normalized = self._post_process(normalized)
-        chunks = self._chunk(normalized, profile)
+        text = self._normalize(text)
+        text = self._structural_rewrite(text, profile)
+        text = self._apply_profile_rules(text, profile)
+        text = self._apply_dictionary_stack(db, text, dictionary_id, profile)
+        text = self._post_process(text)
+        chunks = self._chunk(text, profile)
 
         return ProcessedPayload(
             original_text=original_text,
-            processed_text=normalized,
+            processed_text=text,
             chunks=chunks,
         )
 
@@ -127,9 +130,12 @@ class TechnicalPreprocessor:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def _structural_cleanup(self, text: str, profile: str) -> str:
+    def _structural_rewrite(self, text: str, profile: str) -> str:
         if profile == "technical":
             text = self._rewrite_code(text)
+
+        if profile == "literary":
+            text = re.sub(r"\n\s*\n", " <PARA_BREAK> ", text)
 
         text = re.sub(r"(^|\n)-\s+", r"\1— ", text)
         return text
@@ -170,22 +176,18 @@ class TechnicalPreprocessor:
         code = re.sub(r"\s+", " ", code)
         return code.strip()
 
-    def _apply_regex(self, text: str) -> str:
-        return self._apply_shared_rules(text)
-
-    def _apply_shared_rules(self, text: str) -> str:
+    def _apply_profile_rules(self, text: str, profile: str) -> str:
         for pattern, replacement in self.shared_replacements:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-        return text
-
-    def _apply_profile_rules(self, text: str, profile: str) -> str:
-        text = self._apply_shared_rules(text)
 
         if profile == "literary":
-            return self._apply_literary_rules(text)
-        if profile == "technical":
-            return self._apply_technical_rules(text)
-        return self._apply_general_rules(text)
+            text = self._apply_literary_rules(text)
+        elif profile == "technical":
+            text = self._apply_technical_rules(text)
+        else:
+            text = self._apply_general_rules(text)
+
+        return text
 
     def _apply_literary_rules(self, text: str) -> str:
         def replace_heading(match: re.Match[str]) -> str:
@@ -195,6 +197,18 @@ class TechnicalPreprocessor:
 
         text = re.sub(r"\b(Глава|Часть)\s+([IVX]+)\b", replace_heading, text, flags=re.IGNORECASE)
 
+        # Abbreviations specific to literary
+        extra_repls = [
+            (r"\bгл\.", "глава"),
+            (r"\bстр\.", "страница"),
+            (r"\bрис\.", "рисунок"),
+            (r"\bтабл\.", "таблица"),
+            (r"\bим\.", "имени"),
+        ]
+        for pattern, replacement in extra_repls:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # Name initials: А. Б. Иванов -> А Б Иванов
         text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2 \3", text)
         text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2", text)
 
@@ -227,26 +241,40 @@ class TechnicalPreprocessor:
         return text
 
     def _apply_dictionary(self, db: Session, text: str, dictionary_id: int | None) -> str:
-        dictionary = None
+        return self._apply_dictionary_stack(db, text, dictionary_id, "general")
+
+    def _apply_dictionary_stack(self, db: Session, text: str, dictionary_id: int | None, profile: str) -> str:
+        # Fetch applicable dictionaries
+        # 1. System general
+        # 2. System profile-specific
+        # 3. User-selected (if any) or Default
+
+        conditions = [
+            (Dictionary.is_system.is_(True)) & (Dictionary.domain == "general"),
+            (Dictionary.is_system.is_(True)) & (Dictionary.domain == profile),
+        ]
         if dictionary_id is not None:
-            dictionary = db.get(Dictionary, dictionary_id)
+            conditions.append(Dictionary.id == dictionary_id)
+        else:
+            conditions.append(Dictionary.is_default.is_(True))
 
-        if dictionary is None:
-            dictionary = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
+        dictionaries_query = select(Dictionary).where(or_(*conditions))
 
-        if dictionary is None or not dictionary.entries:
+        dictionaries = db.scalars(dictionaries_query).all()
+        if not dictionaries:
             return text
 
-        entries = sorted(
-            dictionary.entries,
-            key=lambda entry: (entry.priority, len(entry.source_text)),
-            reverse=True,
-        )
+        # Collect all entries and sort by (dictionary_priority, entry_priority, length)
+        all_entries: list[tuple[int, int, int, DictionaryEntry]] = []
+        for d in dictionaries:
+            for e in d.entries:
+                if e.is_enabled:
+                    all_entries.append((d.priority, e.priority, len(e.source_text), e))
 
-        for entry in entries:
-            if not entry.is_enabled:
-                continue
+        # Sort: higher dictionary priority first, then higher entry priority, then longer source text
+        all_entries.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
 
+        for _, _, _, entry in all_entries:
             pattern = re.escape(entry.source_text)
             if entry.source_text and entry.source_text[0].isalnum():
                 pattern = r"\b" + pattern
@@ -259,6 +287,7 @@ class TechnicalPreprocessor:
         return text
 
     def _post_process(self, text: str) -> str:
+        text = text.replace("<PARA_BREAK>", "\n\n")
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r" *\n *", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
@@ -266,23 +295,25 @@ class TechnicalPreprocessor:
         return text.strip()
 
     def _chunk(self, text: str, profile: str) -> list[str]:
-        paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
-        if not paragraphs:
-            return [text.strip()] if text.strip() else []
-
+        # Choose parameters based on profile
         if profile == "technical":
             target = 180
             max_len = 260
         elif profile == "literary":
             target = 260
-            max_len = 380
+            max_len = 320
         else:
             target = 220
             max_len = 340
 
+        paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+        if not paragraphs:
+            return [text.strip()] if text.strip() else []
+
         chunks: list[str] = []
 
         for paragraph in paragraphs:
+            # Better sentence splitting
             sentences = [
                 part.strip()
                 for part in re.split(r"(?<=[.!?…])\s+(?=[A-ZА-ЯЁ\"(—])", paragraph)
@@ -323,7 +354,9 @@ class TechnicalPreprocessor:
             if current:
                 final_chunks.append(" ".join(current))
 
-        if len(final_chunks) >= 2 and len(final_chunks[-1]) < 40:
+        # Merge small trailing chunks
+        min_last_len = 50 if profile == "literary" else 40
+        if len(final_chunks) >= 2 and len(final_chunks[-1]) < min_last_len:
             final_chunks[-2] = f"{final_chunks[-2]} {final_chunks[-1]}".strip()
             final_chunks.pop()
 

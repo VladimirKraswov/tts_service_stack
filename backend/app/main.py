@@ -19,7 +19,7 @@ from app.core.logging import configure_logging
 from app.db.init_db import init_db
 from app.services.live.factory import get_live_engine
 from app.services.live.manager import LiveSessionManager
-from app.services.live.preprocessor import LiveTextPreprocessor
+from app.services.preprocessor import TechnicalPreprocessor
 from app.services.preview.factory import get_preview_engine
 
 settings = get_settings()
@@ -63,10 +63,10 @@ async def lifespan(app: FastAPI):
 
     preview_engine = get_preview_engine()
     live_engine = get_live_engine()
-    live_preprocessor = LiveTextPreprocessor()
+    preprocessor = TechnicalPreprocessor()
     live_manager = LiveSessionManager(
         live_engine=live_engine,
-        preprocessor=live_preprocessor,
+        preprocessor=preprocessor,
     )
 
     app.state.preview_engine = preview_engine
