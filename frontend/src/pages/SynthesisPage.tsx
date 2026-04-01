@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { client, type Dictionary, type SynthesisJob, type Voice } from '../api/client'
 import { useToast } from '../components/Toast'
 
@@ -32,8 +32,61 @@ function getStageIndex(stage: string): number {
   return orderedStages.indexOf(stage)
 }
 
+function pickDefaultDictionaryId(
+  profile: 'literary' | 'technical',
+  dictionaries: Dictionary[],
+): number | undefined {
+  if (profile === 'literary') {
+    return (
+      dictionaries.find((item) => item.slug === 'default-literary')?.id ??
+      dictionaries.find((item) => item.is_default)?.id ??
+      dictionaries[0]?.id
+    )
+  }
+
+  return (
+    dictionaries.find((item) => item.slug === 'default-tech')?.id ??
+    dictionaries.find((item) => item.is_default)?.id ??
+    dictionaries[0]?.id
+  )
+}
+
+function pickDefaultLoraName(
+  profile: 'literary' | 'technical',
+  voices: Voice[],
+): string {
+  const loras = voices.filter((voice) => voice.kind === 'lora')
+
+  if (profile === 'literary') {
+    return (
+      loras.find((voice) => voice.name === 'calm-lora-v1')?.name ??
+      loras.find((voice) => voice.name === 'energetic-lora-v1')?.name ??
+      loras[0]?.name ??
+      ''
+    )
+  }
+
+  return (
+    loras.find((voice) => voice.name === 'tech-lora-v1')?.name ??
+    loras[0]?.name ??
+    ''
+  )
+}
+
+function pickDefaultReadingMode(
+  profile: 'literary' | 'technical',
+): 'narration' | 'expressive' | 'dialogue' | 'technical' {
+  return profile === 'technical' ? 'technical' : 'narration'
+}
+
+function pickDefaultParagraphPause(profile: 'literary' | 'technical'): number {
+  return profile === 'technical' ? 350 : 700
+}
+
 export function SynthesisPage() {
   const { show } = useToast()
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const [file, setFile] = useState<File | null>(null)
   const [voices, setVoices] = useState<Voice[]>([])
@@ -46,7 +99,7 @@ export function SynthesisPage() {
   const [preprocessProfile, setPreprocessProfile] = useState<'literary' | 'technical'>('literary')
   const [readingMode, setReadingMode] = useState<'narration' | 'expressive' | 'dialogue' | 'technical'>('narration')
   const [speakingRate, setSpeakingRate] = useState<'slow' | 'normal' | 'fast'>('normal')
-  const [paragraphPauseMs, setParagraphPauseMs] = useState(500)
+  const [paragraphPauseMs, setParagraphPauseMs] = useState(700)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const voiceOptions = useMemo(() => voices.filter((voice) => voice.kind === 'voice'), [voices])
@@ -64,14 +117,8 @@ export function SynthesisPage() {
     setJobs(synthesisRows)
 
     setVoiceId((current) => current || voiceRows.find((item) => item.kind === 'voice')?.name || '')
-    setLoraName((current) => current || voiceRows.find((item) => item.kind === 'lora')?.name || '')
-
-    setDictionaryId((current) => {
-      if (current !== undefined) return current
-      const literary = dictionaryRows.find((item) => item.slug === 'default-literary')
-      const fallback = dictionaryRows.find((item) => item.is_default) ?? dictionaryRows[0]
-      return literary?.id ?? fallback?.id
-    })
+    setLoraName((current) => current || pickDefaultLoraName(preprocessProfile, voiceRows))
+    setDictionaryId((current) => current ?? pickDefaultDictionaryId(preprocessProfile, dictionaryRows))
   }
 
   useEffect(() => {
@@ -79,6 +126,21 @@ export function SynthesisPage() {
     const timer = window.setInterval(() => void load(), 2000)
     return () => window.clearInterval(timer)
   }, [])
+
+  const handleProfileChange = (nextProfile: 'literary' | 'technical') => {
+    setPreprocessProfile(nextProfile)
+    setDictionaryId(pickDefaultDictionaryId(nextProfile, dictionaries))
+    setLoraName(pickDefaultLoraName(nextProfile, voices))
+    setReadingMode(pickDefaultReadingMode(nextProfile))
+    setParagraphPauseMs(pickDefaultParagraphPause(nextProfile))
+  }
+
+  const clearSelectedFile = () => {
+    setFile(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
 
   const submit = async () => {
     if (!file) {
@@ -100,7 +162,6 @@ export function SynthesisPage() {
         paragraph_pause_ms: paragraphPauseMs,
       })
 
-      setFile(null)
       await load()
       show('Задача синтеза создана', 'success')
     } catch (error) {
@@ -127,10 +188,23 @@ export function SynthesisPage() {
 
         <label>Файл текста (.txt, .md)</label>
         <input
+          ref={fileInputRef}
           type="file"
           accept=".txt,.md,text/plain,text/markdown"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />
+
+        {file && (
+          <div className="preview-box">
+            <strong>Выбранный файл</strong>
+            <p>{file.name}</p>
+            <div className="row wrap">
+              <button type="button" onClick={clearSelectedFile}>
+                Очистить файл
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="grid two">
           <div>
@@ -161,7 +235,7 @@ export function SynthesisPage() {
             <label>Профиль препроцессинга</label>
             <select
               value={preprocessProfile}
-              onChange={(e) => setPreprocessProfile(e.target.value as 'literary' | 'technical')}
+              onChange={(e) => handleProfileChange(e.target.value as 'literary' | 'technical')}
             >
               <option value="literary">Художественная литература</option>
               <option value="technical">Технический текст</option>
@@ -255,13 +329,12 @@ export function SynthesisPage() {
                     {orderedStages.map((stage, index) => {
                       const completed = job.status === 'completed' && index <= activeStageIndex
                       const active = job.stage === stage
-                      const failed = job.status === 'failed' && activeStageIndex === -1 && stage === 'uploaded'
 
                       return (
                         <li key={stage}>
                           <strong>{stageLabel(stage)}</strong>
                           {' — '}
-                          {completed ? 'готово' : active ? 'в работе' : failed ? 'ошибка' : 'ожидание'}
+                          {completed ? 'готово' : active ? 'в работе' : job.status === 'failed' ? 'прервано' : 'ожидание'}
                         </li>
                       )
                     })}

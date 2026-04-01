@@ -28,9 +28,9 @@ VOICE_ALIASES = {
 }
 
 STYLE_ALIASES = {
-    'tech-lora-v1': 'Четко, спокойно, размеренно, как технический диктор. Английские термины произноси разборчиво.',
-    'calm-lora-v1': 'Очень спокойно и мягко, без спешки.',
-    'energetic-lora-v1': 'Живой и энергичный темп, но без крика.',
+    'tech-lora-v1': 'Читай чётко, спокойно, размеренно, как технический диктор. Английские термины произноси разборчиво.',
+    'calm-lora-v1': 'Читай мягко, естественно, плавно и спокойно.',
+    'energetic-lora-v1': 'Читай живо и энергично, но без крика и суеты.',
 }
 
 LANGUAGE_ALIASES = {
@@ -48,9 +48,9 @@ LANGUAGE_ALIASES = {
 }
 
 READING_MODE_ALIASES = {
-    'narration': 'Читай ровно, как художественный аудиорассказ.',
-    'expressive': 'Читай выразительно, с естественными интонациями.',
-    'dialogue': 'Чётко разделяй авторскую речь и диалоги.',
+    'narration': 'Читай естественно, мягко и связно, как хороший художественный аудиорассказ.',
+    'expressive': 'Читай выразительно и эмоционально, но без переигрывания.',
+    'dialogue': 'Чётко разделяй авторскую речь и реплики персонажей, сохраняя естественные интонации.',
     'technical': 'Читай чётко, спокойно и нейтрально, как технический диктор.',
 }
 
@@ -207,17 +207,24 @@ class QwenRuntime:
         return self._supported_languages.get(_normalize_name(requested), requested)
 
     def _compose_instruction(self, request: QwenSynthesisRequest) -> str:
-        base_style = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style).strip()
-        reading_style = READING_MODE_ALIASES.get(request.reading_mode, '').strip()
-        rate_style = SPEAKING_RATE_ALIASES.get(request.speaking_rate or '', '').strip()
+        mode_key = (request.reading_mode or 'narration').strip().lower()
+        rate_key = (request.speaking_rate or '').strip().lower()
+        language_key = (request.language or 'ru').strip().lower()
 
-        parts = [base_style]
-        if reading_style:
-            parts.append(reading_style)
-        if rate_style:
-            parts.append(rate_style)
+        reading_style = READING_MODE_ALIASES.get(mode_key, self.settings.qwen_preview_style.strip())
+        lora_style = STYLE_ALIASES.get(request.lora_name or '', '').strip()
+        rate_style = SPEAKING_RATE_ALIASES.get(rate_key, '').strip()
 
-        return " ".join(part for part in parts if part).strip()
+        language_hint = ''
+        if language_key == 'ru':
+            language_hint = (
+                'Русский текст читай благозвучно и естественно. '
+                'Сокращения, имена, англицизмы и аббревиатуры произноси разборчиво. '
+                'Не читай служебные символы и знаки препинания как отдельные слова, если это не требуется текстом.'
+            )
+
+        parts = [reading_style, lora_style, rate_style, language_hint]
+        return ' '.join(part for part in parts if part).strip()
 
     def _generate_wav_bytes_sync(self, request: QwenSynthesisRequest) -> tuple[bytes, int]:
         if self._model is None:

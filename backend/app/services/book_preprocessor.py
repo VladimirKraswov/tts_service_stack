@@ -66,17 +66,30 @@ class LiteraryPreprocessor(TechnicalPreprocessor):
 
         text = re.sub(r"\bГлава\s+([IVX]+)\b", chapter_repl, text, flags=re.IGNORECASE)
 
-        replacements = [
-            (r"\bт\.\s*д\.\b", "так далее"),
-            (r"\bт\.\s*п\.\b", "тому подобное"),
+        replacement_patterns: list[tuple[str, str]] = [
             (r"\bи\s+т\.\s*д\.\b", "и так далее"),
             (r"\bи\s+т\.\s*п\.\b", "и тому подобное"),
+            (r"\bт\.\s*е\.\b", "то есть"),
+            (r"\bт\.\s*к\.\b", "так как"),
+            (r"\bт\.\s*д\.\b", "так далее"),
+            (r"\bт\.\s*п\.\b", "тому подобное"),
+            (r"\bгг\.\b", "годы"),
             (r"\bг\.\b", "город"),
             (r"\bул\.\b", "улица"),
             (r"\bим\.\b", "имени"),
+            (r"\bгл\.\b", "глава"),
+            (r"\bстр\.\b", "страница"),
+            (r"\bрис\.\b", "рисунок"),
+            (r"\bкв\.\b", "квартира"),
+            (r"\bпос\.\b", "посёлок"),
+            (r"\bд\.\b", "дом"),
+            (r"\bдр\.\b", "другие"),
         ]
-        for pattern, replacement in replacements:
+
+        for pattern, replacement in replacement_patterns:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        text = re.sub(r"№\s*(\d+)", r"номер \1", text)
 
         # А. С. Пушкин -> А С Пушкин
         text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2 \3", text)

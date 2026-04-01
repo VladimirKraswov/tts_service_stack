@@ -1,7 +1,7 @@
 === CODE BUNDLE ===
 root: /Volumes/Extend/work/tts_service_stack
 ignore: .codebundleignore
-generated: 2026-03-31T20:50:21.380Z
+generated: 2026-04-01T10:11:35.533Z
 
 
 
@@ -355,6 +355,9 @@ async def preview_audio(
                 voice_id=payload.voice_id,
                 lora_name=payload.lora_name,
                 language=payload.language,
+                reading_mode=payload.reading_mode,
+                speaking_rate=payload.speaking_rate,
+                paragraph_pause_ms=payload.paragraph_pause_ms,
             )
         )
         return StreamingResponse(
@@ -520,6 +523,149 @@ async def live_ws(websocket: WebSocket, session_id: str) -> None:
         except Exception:
             pass
         await manager.disconnect(session_id)
+
+
+path: /backend/app/api/routes/synthesis.py
+----------------------------------------
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.core.config import get_settings
+from app.models.dictionary import Dictionary
+from app.models.synthesis import SynthesisJob
+from app.schemas.synthesis import SynthesisJobCreateResponse, SynthesisJobRead
+from app.services.storage import save_upload
+from app.services.synthesis_runner import SynthesisRunner
+from app.services.text_extractor import SUPPORTED_TEXT_EXTENSIONS
+
+router = APIRouter(prefix="/synthesis", tags=["synthesis"])
+settings = get_settings()
+runner = SynthesisRunner()
+
+
+def _validate_text_upload(file: UploadFile) -> None:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in SUPPORTED_TEXT_EXTENSIONS:
+        allowed = ", ".join(sorted(SUPPORTED_TEXT_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed: {allowed}")
+
+
+def _resolve_default_dictionary_id(db: Session, preprocess_profile: str) -> int | None:
+    if preprocess_profile == "literary":
+        literary_dict = db.scalar(select(Dictionary).where(Dictionary.slug == "default-literary"))
+        if literary_dict is not None:
+            return literary_dict.id
+
+    default_dict = db.scalar(select(Dictionary).where(Dictionary.is_default.is_(True)))
+    return default_dict.id if default_dict is not None else None
+
+
+@router.post("", response_model=SynthesisJobCreateResponse)
+async def create_synthesis_job(
+    file: UploadFile = File(...),
+    voice_id: str | None = Form(None),
+    lora_name: str | None = Form(None),
+    language: str = Form("ru"),
+    preprocess_profile: str = Form("literary"),
+    reading_mode: str = Form("narration"),
+    dictionary_id: int | None = Form(None),
+    speaking_rate: str | None = Form(None),
+    paragraph_pause_ms: int = Form(500),
+    db: Session = Depends(get_db),
+) -> SynthesisJobCreateResponse:
+    _validate_text_upload(file)
+
+    if preprocess_profile not in {"literary", "technical"}:
+        raise HTTPException(status_code=400, detail="preprocess_profile must be literary or technical")
+
+    if reading_mode not in {"narration", "expressive", "dialogue", "technical"}:
+        raise HTTPException(status_code=400, detail="reading_mode is invalid")
+
+    if speaking_rate is not None and speaking_rate not in {"slow", "normal", "fast"}:
+        raise HTTPException(status_code=400, detail="speaking_rate must be slow, normal or fast")
+
+    if paragraph_pause_ms < 0 or paragraph_pause_ms > 5000:
+        raise HTTPException(status_code=400, detail="paragraph_pause_ms must be between 0 and 5000")
+
+    target_dir = settings.upload_dir / "synthesis"
+    saved_path = save_upload(file, target_dir)
+
+    effective_dictionary_id = dictionary_id
+    if effective_dictionary_id is None:
+        effective_dictionary_id = _resolve_default_dictionary_id(db, preprocess_profile)
+
+    job = SynthesisJob(
+        source_name=file.filename or "text.txt",
+        source_path=str(saved_path),
+        status="uploaded",
+        stage="uploaded",
+        progress=5,
+        voice_id=voice_id,
+        lora_name=lora_name,
+        language=language,
+        preprocess_profile=preprocess_profile,
+        reading_mode=reading_mode,
+        dictionary_id=effective_dictionary_id,
+        speaking_rate=speaking_rate,
+        paragraph_pause_ms=paragraph_pause_ms,
+        log="Задача создана.",
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    asyncio.create_task(runner.run_job(job.id))
+
+    return SynthesisJobCreateResponse(
+        id=job.id,
+        status=job.status,
+        stage=job.stage,
+        progress=job.progress,
+    )
+
+
+@router.get("", response_model=list[SynthesisJobRead])
+def list_synthesis_jobs(db: Session = Depends(get_db)) -> list[SynthesisJob]:
+    return list(db.scalars(select(SynthesisJob).order_by(SynthesisJob.id.desc())))
+
+
+@router.get("/{job_id}", response_model=SynthesisJobRead)
+def get_synthesis_job(job_id: int, db: Session = Depends(get_db)) -> SynthesisJob:
+    job = db.get(SynthesisJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Synthesis job not found")
+    return job
+
+
+@router.get("/{job_id}/download")
+def download_synthesis_mp3(job_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    job = db.get(SynthesisJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Synthesis job not found")
+
+    if job.status != "completed" or not job.mp3_path:
+        raise HTTPException(status_code=409, detail="MP3 is not ready yet")
+
+    mp3_path = Path(job.mp3_path)
+    if not mp3_path.exists():
+        raise HTTPException(status_code=404, detail="MP3 file not found")
+
+    return FileResponse(
+        mp3_path,
+        media_type="audio/mpeg",
+        filename=f"synthesis-{job.id}.mp3",
+    )
 
 
 path: /backend/app/api/routes/training.py
@@ -741,6 +887,7 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models.base import Base
 from app.models.dictionary import Dictionary, DictionaryEntry
+from app.models.synthesis import SynthesisJob
 from app.models.voice import VoiceProfile
 
 
@@ -776,22 +923,68 @@ def _ensure_voice(
     existing.kind = kind
 
 
+def _ensure_dictionary(
+    session,
+    *,
+    name: str,
+    slug: str,
+    description: str,
+    is_default: bool,
+    entries: list[tuple[str, str, str]],
+) -> Dictionary:
+    dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == slug))
+    if dictionary is None:
+        dictionary = Dictionary(
+            name=name,
+            slug=slug,
+            description=description,
+            is_default=is_default,
+        )
+        session.add(dictionary)
+        session.flush()
+    else:
+        dictionary.name = name
+        dictionary.description = description
+        dictionary.is_default = is_default
+        session.flush()
+
+    existing_entries = {
+        entry.source_text: entry
+        for entry in session.scalars(
+            select(DictionaryEntry).where(DictionaryEntry.dictionary_id == dictionary.id)
+        ).all()
+    }
+
+    for source_text, spoken_text, note in entries:
+        row = existing_entries.get(source_text)
+        if row is None:
+            session.add(
+                DictionaryEntry(
+                    dictionary_id=dictionary.id,
+                    source_text=source_text,
+                    spoken_text=spoken_text,
+                    note=note,
+                )
+            )
+        else:
+            row.spoken_text = spoken_text
+            row.note = note
+
+    return dictionary
+
+
 def init_db() -> None:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
 
     with SessionLocal() as session:
-        default_dictionary = session.scalar(select(Dictionary).where(Dictionary.slug == 'default-tech'))
-        if default_dictionary is None:
-            default_dictionary = Dictionary(
-                name='Default Tech',
-                slug='default-tech',
-                description='Базовый словарь произношения технических терминов.',
-                is_default=True,
-            )
-            session.add(default_dictionary)
-            session.flush()
-            entries = [
+        _ensure_dictionary(
+            session,
+            name='Default Tech',
+            slug='default-tech',
+            description='Базовый словарь произношения технических терминов.',
+            is_default=True,
+            entries=[
                 ('Python', 'Пайтон', 'Название языка Python'),
                 ('Java', 'Джава', 'Название языка Java'),
                 ('React', 'Реакт', 'Название фреймворка React'),
@@ -800,16 +993,28 @@ def init_db() -> None:
                 ('useState', 'юз стейт', 'Хук React'),
                 ('goroutine', 'горутина', 'Go concurrency primitive'),
                 ('__init__', 'андерскор андерскор инит андерскор андерскор', 'Python magic method'),
-            ]
-            for source, spoken, note in entries:
-                session.add(
-                    DictionaryEntry(
-                        dictionary_id=default_dictionary.id,
-                        source_text=source,
-                        spoken_text=spoken,
-                        note=note,
-                    )
-                )
+                ('WebSocket', 'веб сокет', 'Сетевой термин'),
+                ('FastAPI', 'фаст эй пи ай', 'Название фреймворка'),
+            ],
+        )
+
+        _ensure_dictionary(
+            session,
+            name='Default Literary',
+            slug='default-literary',
+            description='Базовый словарь и подстановки для чтения художественной литературы.',
+            is_default=False,
+            entries=[
+                ('г.', 'город', 'Сокращение'),
+                ('ул.', 'улица', 'Сокращение'),
+                ('им.', 'имени', 'Сокращение'),
+                ('т.д.', 'так далее', 'Сокращение'),
+                ('т.п.', 'тому подобное', 'Сокращение'),
+                ('и т.д.', 'и так далее', 'Сокращение'),
+                ('и т.п.', 'и тому подобное', 'Сокращение'),
+                ('гг.', 'годы', 'Сокращение'),
+            ],
+        )
 
         if settings.effective_preview_backend == 'qwen':
             qwen_model = settings.qwen_model_name
@@ -828,6 +1033,7 @@ def init_db() -> None:
             ]
             for name, display_name, speaker, description in qwen_voices:
                 _ensure_voice(session, name, display_name, 'qwen', qwen_model, f'{description} Speaker={speaker}')
+
             _ensure_voice(
                 session,
                 'tech-lora-v1',
@@ -898,6 +1104,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.dictionaries import router as dictionaries_router
 from app.api.routes.health import router as health_router
 from app.api.routes.live import router as live_router
+from app.api.routes.synthesis import router as synthesis_router
 from app.api.routes.training import router as training_router
 from app.api.routes.voices import router as voices_router
 from app.core.config import get_settings
@@ -994,6 +1201,7 @@ app.include_router(dictionaries_router, prefix=settings.api_prefix)
 app.include_router(voices_router, prefix=settings.api_prefix)
 app.include_router(training_router, prefix=settings.api_prefix)
 app.include_router(live_router, prefix=settings.api_prefix)
+app.include_router(synthesis_router, prefix=settings.api_prefix)
 
 
 path: /backend/app/models/base.py
@@ -1035,6 +1243,50 @@ class DictionaryEntry(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     dictionary: Mapped['Dictionary'] = relationship(back_populates='entries')
+
+
+path: /backend/app/models/synthesis.py
+----------------------------------------
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class SynthesisJob(Base):
+    __tablename__ = "synthesis_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_path: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="uploaded")
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="uploaded")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    original_text_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    processed_text_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    wav_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    mp3_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    voice_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    lora_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="ru")
+    preprocess_profile: Mapped[str] = mapped_column(String(32), nullable=False, default="literary")
+    reading_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="narration")
+    dictionary_id: Mapped[int | None] = mapped_column(ForeignKey("dictionaries.id"), nullable=True)
+
+    speaking_rate: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    paragraph_pause_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
+
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    log: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 path: /backend/app/models/training.py
@@ -1145,6 +1397,9 @@ class LiveOptions(BaseModel):
     voice_id: str | None = None
     lora_name: str | None = None
     language: str = 'ru'
+    reading_mode: str = 'narration'
+    speaking_rate: str | None = None
+    paragraph_pause_ms: int = 500
 
 
 class LiveEnqueueRequest(LiveOptions):
@@ -1167,6 +1422,50 @@ class LivePreviewRequest(LiveOptions):
 class LivePreviewMetaResponse(BaseModel):
     original_text: str
     processed_text: str
+
+
+path: /backend/app/schemas/synthesis.py
+----------------------------------------
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class SynthesisJobCreateResponse(BaseModel):
+    id: int
+    status: str
+    stage: str
+    progress: int
+
+
+class SynthesisJobRead(BaseModel):
+    id: int
+    source_name: str
+    status: str
+    stage: str
+    progress: int
+
+    voice_id: str | None
+    lora_name: str | None
+    language: str
+    preprocess_profile: str
+    reading_mode: str
+    dictionary_id: int | None
+    speaking_rate: str | None
+    paragraph_pause_ms: int
+
+    original_text_path: str | None
+    processed_text_path: str | None
+    wav_path: str | None
+    mp3_path: str | None
+
+    error_message: str | None
+    log: str | None
+
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 path: /backend/app/schemas/training.py
@@ -1225,6 +1524,226 @@ class VoiceRead(BaseModel):
     kind: str
 
     model_config = {'from_attributes': True}
+
+
+path: /backend/app/services/audio.py
+----------------------------------------
+from __future__ import annotations
+
+import io
+import subprocess
+import wave
+from pathlib import Path
+
+
+def _read_wav_bytes(wav_bytes: bytes) -> tuple[int, int, int, bytes]:
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        pcm = wav_file.readframes(wav_file.getnframes())
+    return channels, sample_width, sample_rate, pcm
+
+
+def concat_wav_segments(segments: list[bytes], output_path: Path, pause_ms: int = 0) -> Path:
+    if not segments:
+        raise ValueError("No WAV segments to concatenate")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    channels, sample_width, sample_rate, first_pcm = _read_wav_bytes(segments[0])
+    pcm_parts: list[bytes] = [first_pcm]
+
+    silence = b""
+    if pause_ms > 0:
+        silence_frames = int(sample_rate * (pause_ms / 1000.0))
+        silence = b"\x00" * silence_frames * channels * sample_width
+
+    for segment in segments[1:]:
+        seg_channels, seg_sample_width, seg_sample_rate, pcm = _read_wav_bytes(segment)
+        if (seg_channels, seg_sample_width, seg_sample_rate) != (channels, sample_width, sample_rate):
+            raise ValueError("Incompatible WAV segments: channels/sample width/sample rate mismatch")
+        if silence:
+            pcm_parts.append(silence)
+        pcm_parts.append(pcm)
+
+    with wave.open(str(output_path), "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b"".join(pcm_parts))
+
+    return output_path
+
+
+def wav_to_mp3(wav_path: Path, mp3_path: Path, bitrate: str = "192k") -> Path:
+    mp3_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(wav_path),
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        bitrate,
+        str(mp3_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "ffmpeg mp3 encoding failed")
+
+    return mp3_path
+
+
+path: /backend/app/services/book_preprocessor.py
+----------------------------------------
+from __future__ import annotations
+
+import re
+import unicodedata
+from dataclasses import dataclass
+
+from sqlalchemy.orm import Session
+
+from app.services.preprocessor import TechnicalPreprocessor
+
+
+@dataclass(slots=True)
+class BookProcessedPayload:
+    original_text: str
+    processed_text: str
+    chunks: list[str]
+
+
+_ROMAN_CHAPTERS = {
+    "I": "первая",
+    "II": "вторая",
+    "III": "третья",
+    "IV": "четвёртая",
+    "V": "пятая",
+    "VI": "шестая",
+    "VII": "седьмая",
+    "VIII": "восьмая",
+    "IX": "девятая",
+    "X": "десятая",
+}
+
+
+class LiteraryPreprocessor(TechnicalPreprocessor):
+    def process(self, db: Session, text: str, dictionary_id: int | None = None) -> BookProcessedPayload:
+        normalized = self._normalize_literary(text)
+        normalized = self._apply_literary_rules(normalized)
+        normalized = self._apply_regex(normalized)
+        normalized = self._apply_dictionary(db, normalized, dictionary_id)
+
+        chunks = self._chunk_literary(normalized)
+        processed_text = normalized.replace(" <PARA_BREAK> ", "\n\n").strip()
+
+        return BookProcessedPayload(
+            original_text=text,
+            processed_text=processed_text,
+            chunks=chunks,
+        )
+
+    def _normalize_literary(self, text: str) -> str:
+        text = unicodedata.normalize("NFKC", text)
+        text = text.replace("\u00A0", " ")
+        text = text.replace("«", '"').replace("»", '"')
+        text = text.replace("–", "—")
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\r\n?", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _apply_literary_rules(self, text: str) -> str:
+        def chapter_repl(match: re.Match[str]) -> str:
+            roman = match.group(1).upper()
+            ordinal = _ROMAN_CHAPTERS.get(roman)
+            if ordinal:
+                return f"Глава {ordinal}"
+            return match.group(0)
+
+        text = re.sub(r"\bГлава\s+([IVX]+)\b", chapter_repl, text, flags=re.IGNORECASE)
+
+        replacements = [
+            (r"\bт\.\s*д\.\b", "так далее"),
+            (r"\bт\.\s*п\.\b", "тому подобное"),
+            (r"\bи\s+т\.\s*д\.\b", "и так далее"),
+            (r"\bи\s+т\.\s*п\.\b", "и тому подобное"),
+            (r"\bг\.\b", "город"),
+            (r"\bул\.\b", "улица"),
+            (r"\bим\.\b", "имени"),
+        ]
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # А. С. Пушкин -> А С Пушкин
+        text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2 \3", text)
+        # А. Пушкин -> А Пушкин
+        text = re.sub(r"\b([А-ЯЁ])\.\s*([А-ЯЁ][а-яё]+)\b", r"\1 \2", text)
+
+        # Маркер абзаца для chunking
+        text = re.sub(r"\n\s*\n", " <PARA_BREAK> ", text)
+
+        # Нормализация тире в диалогах
+        text = re.sub(r"\s*—\s*", " — ", text)
+        text = re.sub(r"\s+", " ", text)
+
+        return text.strip()
+
+    def _chunk_literary(self, text: str) -> list[str]:
+        paragraphs = [part.strip() for part in text.split("<PARA_BREAK>") if part.strip()]
+        if not paragraphs:
+            return [text.replace("<PARA_BREAK>", "").strip()]
+
+        chunks: list[str] = []
+        max_len = 260
+
+        for paragraph in paragraphs:
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?…])\s+", paragraph) if s.strip()]
+            if not sentences:
+                sentences = [paragraph]
+
+            buffer = ""
+            for sentence in sentences:
+                candidate = f"{buffer} {sentence}".strip() if buffer else sentence
+                if len(candidate) <= max_len:
+                    buffer = candidate
+                else:
+                    if buffer:
+                        chunks.append(buffer)
+                    buffer = sentence
+
+            if buffer:
+                chunks.append(buffer)
+
+        return [chunk.replace("<PARA_BREAK>", "").strip() for chunk in chunks if chunk.strip()]
+
+
+path: /backend/app/services/ext_extractor.py
+----------------------------------------
+from __future__ import annotations
+
+from pathlib import Path
+
+SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md"}
+
+
+def extract_text(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix not in SUPPORTED_TEXT_EXTENSIONS:
+        raise ValueError(f"Unsupported text format: {suffix}. Allowed: {', '.join(sorted(SUPPORTED_TEXT_EXTENSIONS))}")
+
+    for encoding in ("utf-8", "utf-8-sig", "cp1251", "koi8-r"):
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+
+    raise ValueError(f"Could not decode text file: {path.name}")
 
 
 path: /backend/app/services/live/base.py
@@ -2120,6 +2639,8 @@ class TechnicalPreprocessor:
             (r"\bCI/CD\b", "си ай си ди"),
             (r"\bv(\d+)\.(\d+)\.(\d+)\b", r"версия \1.\2.\3"),
             (r"\bUI/UX\b", "ю ай ю икс"),
+            (r"\bGPU\b", "джи пи ю"),
+            (r"\bCPU\b", "си пи ю"),
         ]
 
     def process(self, db: Session, text: str, dictionary_id: int | None = None) -> ProcessedPayload:
@@ -2134,6 +2655,7 @@ class TechnicalPreprocessor:
         text = unicodedata.normalize("NFKC", text)
         text = text.replace("\u00A0", " ")
         text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\r\n?", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
@@ -2149,6 +2671,10 @@ class TechnicalPreprocessor:
 
     def _speak_code(self, code: str) -> str:
         replacements = {
+            "==": " равно равно ",
+            "!=": " не равно ",
+            "=>": " стрелка ",
+            "->": " стрелка ",
             "_": " андерскор ",
             "/": " слэш ",
             ".": " точка ",
@@ -2160,10 +2686,6 @@ class TechnicalPreprocessor:
             "}": " закрывающая фигурная скобка ",
             "[": " открывающая квадратная скобка ",
             "]": " закрывающая квадратная скобка ",
-            "==": " равно равно ",
-            "!=": " не равно ",
-            "=>": " стрелка ",
-            "->": " стрелка ",
         }
         for src, dst in replacements.items():
             code = code.replace(src, dst)
@@ -2172,7 +2694,7 @@ class TechnicalPreprocessor:
 
     def _apply_regex(self, text: str) -> str:
         for pattern, replacement in self.regex_replacements:
-            text = re.sub(pattern, replacement, text)
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
         return text
 
     def _apply_dictionary(self, db: Session, text: str, dictionary_id: int | None) -> str:
@@ -2184,15 +2706,12 @@ class TechnicalPreprocessor:
         if dictionary is None or not dictionary.entries:
             return text
 
-        # Sort by length descending to match longer phrases first
         entries = sorted(dictionary.entries, key=lambda entry: len(entry.source_text), reverse=True)
         for entry in entries:
-            # Using \b word boundaries and IGNORECASE to be more robust
-            # We escape the source text but wrap it in \b if it's alphanumeric
             pattern = re.escape(entry.source_text)
-            if entry.source_text[0].isalnum():
+            if entry.source_text and entry.source_text[0].isalnum():
                 pattern = r"\b" + pattern
-            if entry.source_text[-1].isalnum():
+            if entry.source_text and entry.source_text[-1].isalnum():
                 pattern = pattern + r"\b"
 
             text = re.compile(pattern, re.IGNORECASE).sub(entry.spoken_text, text)
@@ -2202,27 +2721,33 @@ class TechnicalPreprocessor:
         parts = [part.strip() for part in re.split(r"(?<=[.!?;:\n])\s+", text) if part.strip()]
         if not parts:
             return [text]
+
         chunks: list[str] = []
         buffer = ""
-        target = 140
-        max_len = 220
+        target = 180
+        max_len = 260
+
         for part in parts:
             if not buffer:
                 buffer = part
                 continue
+
             candidate = f"{buffer} {part}".strip()
             if len(candidate) <= target:
                 buffer = candidate
             else:
                 chunks.append(buffer)
                 buffer = part
+
         if buffer:
             chunks.append(buffer)
+
         final_chunks: list[str] = []
         for chunk in chunks:
             if len(chunk) <= max_len:
                 final_chunks.append(chunk)
                 continue
+
             words = chunk.split()
             current: list[str] = []
             for word in words:
@@ -2232,9 +2757,11 @@ class TechnicalPreprocessor:
                     current = [word]
                 else:
                     current.append(word)
+
             if current:
                 final_chunks.append(" ".join(current))
-        return final_chunks
+
+        return [chunk for chunk in final_chunks if chunk]
 
 
 path: /backend/app/services/preview/base.py
@@ -2251,6 +2778,9 @@ class PreviewRequest:
     voice_id: str | None = None
     lora_name: str | None = None
     language: str = 'ru'
+    reading_mode: str = 'narration'
+    speaking_rate: str | None = None
+    paragraph_pause_ms: int = 500
 
 
 class PreviewEngine(ABC):
@@ -2365,6 +2895,9 @@ class QwenPreviewEngine(PreviewEngine):
                 voice_id=request.voice_id,
                 lora_name=request.lora_name,
                 language=request.language,
+                reading_mode=request.reading_mode,
+                speaking_rate=request.speaking_rate,
+                paragraph_pause_ms=request.paragraph_pause_ms,
             )
         )
         return wav_bytes
@@ -2421,6 +2954,19 @@ LANGUAGE_ALIASES = {
     'auto': 'Auto',
 }
 
+READING_MODE_ALIASES = {
+    'narration': 'Читай ровно, как художественный аудиорассказ.',
+    'expressive': 'Читай выразительно, с естественными интонациями.',
+    'dialogue': 'Чётко разделяй авторскую речь и диалоги.',
+    'technical': 'Читай чётко, спокойно и нейтрально, как технический диктор.',
+}
+
+SPEAKING_RATE_ALIASES = {
+    'slow': 'Темп ниже среднего, без спешки.',
+    'normal': 'Средний естественный темп.',
+    'fast': 'Темп чуть выше среднего, но разборчиво.',
+}
+
 
 def _normalize_name(value: str) -> str:
     return value.strip().lower().replace(' ', '_')
@@ -2432,6 +2978,9 @@ class QwenSynthesisRequest:
     voice_id: str | None = None
     lora_name: str | None = None
     language: str = 'ru'
+    reading_mode: str = 'narration'
+    speaking_rate: str | None = None
+    paragraph_pause_ms: int = 500
 
 
 class QwenRuntime:
@@ -2564,20 +3113,35 @@ class QwenRuntime:
             return requested
         return self._supported_languages.get(_normalize_name(requested), requested)
 
+    def _compose_instruction(self, request: QwenSynthesisRequest) -> str:
+        base_style = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style).strip()
+        reading_style = READING_MODE_ALIASES.get(request.reading_mode, '').strip()
+        rate_style = SPEAKING_RATE_ALIASES.get(request.speaking_rate or '', '').strip()
+
+        parts = [base_style]
+        if reading_style:
+            parts.append(reading_style)
+        if rate_style:
+            parts.append(rate_style)
+
+        return " ".join(part for part in parts if part).strip()
+
     def _generate_wav_bytes_sync(self, request: QwenSynthesisRequest) -> tuple[bytes, int]:
         if self._model is None:
             raise RuntimeError('Qwen model is not loaded')
 
         speaker = self._resolve_speaker(request.voice_id)
         language = self._resolve_language(request.language)
-        instruct_text = STYLE_ALIASES.get(request.lora_name or '', self.settings.qwen_preview_style)
+        instruct_text = self._compose_instruction(request)
 
         logger.info(
-            'Qwen synth start speaker=%s language=%s chars=%s lora=%s attn=%s',
+            'Qwen synth start speaker=%s language=%s chars=%s lora=%s reading_mode=%s speaking_rate=%s attn=%s',
             speaker,
             language,
             len(request.text),
             request.lora_name,
+            request.reading_mode,
+            request.speaking_rate,
             self._active_attn_implementation,
         )
 
@@ -2589,7 +3153,7 @@ class QwenRuntime:
         }
 
         if instruct_text and self._instruction_kwarg:
-            kwargs[self._instruction_kwarg] = instruct_text.strip()
+            kwargs[self._instruction_kwarg] = instruct_text
 
         wavs, sr = self._model.generate_custom_voice(**kwargs)
 
@@ -2658,6 +3222,167 @@ def save_upload(upload: UploadFile, target_dir: Path) -> Path:
         shutil.copyfileobj(upload.file, buffer)
 
     return target_path
+
+
+path: /backend/app/services/synthesis_runner.py
+----------------------------------------
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from app.core.config import get_settings
+from app.db.session import SessionLocal
+from app.models.synthesis import SynthesisJob
+from app.services.audio import concat_wav_segments, wav_to_mp3
+from app.services.book_preprocessor import LiteraryPreprocessor
+from app.services.preview.base import PreviewRequest
+from app.services.preview.factory import get_preview_engine
+from app.services.preprocessor import TechnicalPreprocessor
+from app.services.text_extractor import extract_text
+
+settings = get_settings()
+
+
+def _append_log(job: SynthesisJob, line: str) -> None:
+    job.log = ((job.log or "").strip() + "\n" + line).strip()
+    job.updated_at = datetime.utcnow()
+
+
+class SynthesisRunner:
+    def __init__(self) -> None:
+        self.preview_engine = get_preview_engine()
+        self.tech_preprocessor = TechnicalPreprocessor()
+        self.literary_preprocessor = LiteraryPreprocessor()
+
+    async def run_job(self, job_id: int) -> None:
+        await self.preview_engine.warmup()
+
+        with SessionLocal() as db:
+            job = db.get(SynthesisJob, job_id)
+            if job is None:
+                return
+
+            try:
+                job.status = "running"
+                job.stage = "uploaded"
+                job.progress = 10
+                _append_log(job, "Файл загружен.")
+                db.commit()
+
+                source_path = Path(job.source_path)
+                original_text = extract_text(source_path)
+
+                job_dir = settings.artifacts_dir / f"synthesis-{job.id}"
+                job_dir.mkdir(parents=True, exist_ok=True)
+
+                original_text_path = job_dir / "original.txt"
+                processed_text_path = job_dir / "processed.txt"
+                wav_path = job_dir / "result.wav"
+                mp3_path = job_dir / "result.mp3"
+
+                original_text_path.write_text(original_text, encoding="utf-8")
+                job.original_text_path = str(original_text_path)
+
+                job.stage = "preprocessing"
+                job.progress = 20
+                _append_log(job, "Начата обработка текста.")
+                db.commit()
+
+                preprocessor = self.literary_preprocessor if job.preprocess_profile == "literary" else self.tech_preprocessor
+                processed = preprocessor.process(db, original_text, dictionary_id=job.dictionary_id)
+
+                processed_text_path.write_text(processed.processed_text, encoding="utf-8")
+                job.processed_text_path = str(processed_text_path)
+                job.progress = 35
+                _append_log(job, "Обработка текста завершена.")
+                db.commit()
+
+                chunks = processed.chunks or [processed.processed_text]
+                total_chunks = len(chunks)
+
+                job.stage = "synthesizing"
+                job.progress = 45
+                _append_log(job, f"Начат синтез речи. Частей: {total_chunks}.")
+                db.commit()
+
+                wav_segments: list[bytes] = []
+                log_step = max(1, total_chunks // 10)
+
+                for idx, chunk in enumerate(chunks, start=1):
+                    wav_bytes = await self.preview_engine.synthesize(
+                        PreviewRequest(
+                            text=chunk,
+                            voice_id=job.voice_id,
+                            lora_name=job.lora_name,
+                            language=job.language,
+                            reading_mode=job.reading_mode,
+                            speaking_rate=job.speaking_rate,
+                            paragraph_pause_ms=job.paragraph_pause_ms,
+                        )
+                    )
+                    wav_segments.append(wav_bytes)
+
+                    progress = 45 + int((idx / total_chunks) * 35)
+                    job.progress = min(progress, 80)
+                    if idx == 1 or idx == total_chunks or idx % log_step == 0:
+                        _append_log(job, f"Синтезирована часть {idx}/{total_chunks}.")
+                    db.commit()
+
+                concat_wav_segments(
+                    wav_segments,
+                    output_path=wav_path,
+                    pause_ms=job.paragraph_pause_ms,
+                )
+                job.wav_path = str(wav_path)
+
+                job.stage = "encoding_mp3"
+                job.progress = 90
+                _append_log(job, "Начата конвертация в MP3.")
+                db.commit()
+
+                wav_to_mp3(wav_path, mp3_path)
+                job.mp3_path = str(mp3_path)
+
+                job.stage = "completed"
+                job.status = "completed"
+                job.progress = 100
+                _append_log(job, "MP3 готов к загрузке.")
+                db.commit()
+
+            except Exception as exc:
+                job = db.get(SynthesisJob, job_id)
+                if job is not None:
+                    job.status = "failed"
+                    job.stage = "failed"
+                    job.error_message = str(exc)
+                    _append_log(job, f"Ошибка: {exc}")
+                    db.commit()
+
+
+path: /backend/app/services/text_extractor.py
+----------------------------------------
+from __future__ import annotations
+
+from pathlib import Path
+
+SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md"}
+
+
+def extract_text(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix not in SUPPORTED_TEXT_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported text format: {suffix}. Allowed: {', '.join(sorted(SUPPORTED_TEXT_EXTENSIONS))}"
+        )
+
+    for encoding in ("utf-8", "utf-8-sig", "cp1251", "koi8-r"):
+        try:
+            return path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+
+    raise ValueError(f"Could not decode text file: {path.name}")
 
 
 path: /backend/app/trainer/runner.py
@@ -3391,6 +4116,34 @@ export type TrainingJob = {
   updated_at: string
 }
 
+export type SynthesisJob = {
+  id: number
+  source_name: string
+  status: string
+  stage: string
+  progress: number
+
+  voice_id?: string | null
+  lora_name?: string | null
+  language: string
+  preprocess_profile: string
+  reading_mode: string
+  dictionary_id?: number | null
+  speaking_rate?: string | null
+  paragraph_pause_ms: number
+
+  original_text_path?: string | null
+  processed_text_path?: string | null
+  wav_path?: string | null
+  mp3_path?: string | null
+
+  error_message?: string | null
+  log?: string | null
+
+  created_at: string
+  updated_at: string
+}
+
 async function readError(response: Response): Promise<string> {
   const contentType = response.headers.get('content-type') || ''
   try {
@@ -3423,6 +4176,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const client = {
   health: () => api<{ status: string }>('/api/v1/health'),
   meta: () => api<Record<string, unknown>>('/api/v1/meta'),
+
   listDictionaries: () => api<Dictionary[]>('/api/v1/dictionaries'),
   createDictionary: (payload: { name: string; slug: string; description?: string; is_default?: boolean }) =>
     api<Dictionary>('/api/v1/dictionaries', {
@@ -3444,14 +4198,26 @@ export const client = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     }),
+
   listVoices: () => api<Voice[]>('/api/v1/voices'),
+
   enqueueLive: (payload: { session_id: string; text: string; dictionary_id?: number; voice_id?: string; lora_name?: string; language?: string }) =>
     api<{ status: string }>('/api/v1/live/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
-  previewLive: async (payload: { text: string; dictionary_id?: number; voice_id?: string; lora_name?: string; language?: string }) => {
+
+  previewLive: async (payload: {
+    text: string
+    dictionary_id?: number
+    voice_id?: string
+    lora_name?: string
+    language?: string
+    reading_mode?: string
+    speaking_rate?: string
+    paragraph_pause_ms?: number
+  }) => {
     const body = JSON.stringify(payload)
 
     const [audioResponse, meta] = await Promise.all([
@@ -3476,6 +4242,7 @@ export const client = {
       processedText: meta.processed_text,
     }
   },
+
   listDatasets: () => api<TrainingDataset[]>('/api/v1/training/datasets'),
   uploadDataset: async (formData: FormData) => {
     const response = await fetch('/api/v1/training/datasets', { method: 'POST', body: formData })
@@ -3489,6 +4256,44 @@ export const client = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }),
+
+  listSynthesisJobs: () => api<SynthesisJob[]>('/api/v1/synthesis'),
+
+  getSynthesisJob: (jobId: number) => api<SynthesisJob>(`/api/v1/synthesis/${jobId}`),
+
+  createSynthesisJob: async (payload: {
+    file: File
+    voice_id?: string
+    lora_name?: string
+    language?: string
+    preprocess_profile?: string
+    reading_mode?: string
+    dictionary_id?: number
+    speaking_rate?: string
+    paragraph_pause_ms?: number
+  }) => {
+    const formData = new FormData()
+    formData.append('file', payload.file)
+    if (payload.voice_id) formData.append('voice_id', payload.voice_id)
+    if (payload.lora_name) formData.append('lora_name', payload.lora_name)
+    if (payload.language) formData.append('language', payload.language)
+    if (payload.preprocess_profile) formData.append('preprocess_profile', payload.preprocess_profile)
+    if (payload.reading_mode) formData.append('reading_mode', payload.reading_mode)
+    if (payload.dictionary_id !== undefined) formData.append('dictionary_id', String(payload.dictionary_id))
+    if (payload.speaking_rate) formData.append('speaking_rate', payload.speaking_rate)
+    if (payload.paragraph_pause_ms !== undefined) formData.append('paragraph_pause_ms', String(payload.paragraph_pause_ms))
+
+    const response = await fetch('/api/v1/synthesis', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error(await readError(response))
+    }
+
+    return response.json() as Promise<{ id: number; status: string; stage: string; progress: number }>
+  },
 }
 
 
@@ -3499,6 +4304,7 @@ import { Layout } from './components/Layout'
 import { ToastProvider } from './components/Toast'
 import { DashboardPage } from './pages/DashboardPage'
 import { DictionaryPage } from './pages/DictionaryPage'
+import { SynthesisPage } from './pages/SynthesisPage'
 import { TestingPage } from './pages/TestingPage'
 import { TrainingPage } from './pages/TrainingPage'
 
@@ -3507,8 +4313,9 @@ export default function App() {
     <ToastProvider>
       <Layout>
         <Routes>
-          <Route path="/" element={<Navigate to="/testing" replace />} />
+          <Route path="/" element={<Navigate to="/synthesis" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/synthesis" element={<SynthesisPage />} />
           <Route path="/testing" element={<TestingPage />} />
           <Route path="/dictionary" element={<DictionaryPage />} />
           <Route path="/training" element={<TrainingPage />} />
@@ -3642,6 +4449,7 @@ import type { PropsWithChildren } from 'react'
 
 const links = [
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/synthesis', label: 'Text → MP3' },
   { to: '/testing', label: 'Тестирование' },
   { to: '/dictionary', label: 'Словари' },
   { to: '/training', label: 'Fine-tuning' },
@@ -3652,7 +4460,7 @@ export function Layout({ children }: PropsWithChildren) {
     <div className="shell">
       <aside className="sidebar">
         <h1>TTS Admin</h1>
-        <p className="subtitle">Тестирование, словари и обучение</p>
+        <p className="subtitle">Тестирование, словари, синтез и обучение</p>
         <nav className="nav">
           {links.map((link) => (
             <NavLink key={link.to} to={link.to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -3876,6 +4684,299 @@ export function DictionaryPage() {
             <p>{previewResult}</p>
           </div>
         )}
+      </section>
+    </div>
+  )
+}
+
+
+path: /frontend/src/pages/SynthesisPage.tsx
+----------------------------------------
+import { useEffect, useMemo, useState } from 'react'
+import { client, type Dictionary, type SynthesisJob, type Voice } from '../api/client'
+import { useToast } from '../components/Toast'
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return 'Неизвестная ошибка'
+}
+
+const orderedStages = ['uploaded', 'preprocessing', 'synthesizing', 'encoding_mp3', 'completed']
+
+function stageLabel(stage: string): string {
+  switch (stage) {
+    case 'uploaded':
+      return 'Текст загружен'
+    case 'preprocessing':
+      return 'Обработка текста'
+    case 'synthesizing':
+      return 'Модель превращает текст в голос'
+    case 'encoding_mp3':
+      return 'Конвертация в MP3'
+    case 'completed':
+      return 'Готов к загрузке'
+    case 'failed':
+      return 'Ошибка'
+    default:
+      return stage
+  }
+}
+
+function getStageIndex(stage: string): number {
+  return orderedStages.indexOf(stage)
+}
+
+export function SynthesisPage() {
+  const { show } = useToast()
+
+  const [file, setFile] = useState<File | null>(null)
+  const [voices, setVoices] = useState<Voice[]>([])
+  const [dictionaries, setDictionaries] = useState<Dictionary[]>([])
+  const [jobs, setJobs] = useState<SynthesisJob[]>([])
+
+  const [voiceId, setVoiceId] = useState<string>('')
+  const [loraName, setLoraName] = useState<string>('')
+  const [dictionaryId, setDictionaryId] = useState<number | undefined>(undefined)
+  const [preprocessProfile, setPreprocessProfile] = useState<'literary' | 'technical'>('literary')
+  const [readingMode, setReadingMode] = useState<'narration' | 'expressive' | 'dialogue' | 'technical'>('narration')
+  const [speakingRate, setSpeakingRate] = useState<'slow' | 'normal' | 'fast'>('normal')
+  const [paragraphPauseMs, setParagraphPauseMs] = useState(500)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const voiceOptions = useMemo(() => voices.filter((voice) => voice.kind === 'voice'), [voices])
+  const loraOptions = useMemo(() => voices.filter((voice) => voice.kind === 'lora'), [voices])
+
+  const load = async () => {
+    const [voiceRows, dictionaryRows, synthesisRows] = await Promise.all([
+      client.listVoices(),
+      client.listDictionaries(),
+      client.listSynthesisJobs(),
+    ])
+
+    setVoices(voiceRows)
+    setDictionaries(dictionaryRows)
+    setJobs(synthesisRows)
+
+    setVoiceId((current) => current || voiceRows.find((item) => item.kind === 'voice')?.name || '')
+    setLoraName((current) => current || voiceRows.find((item) => item.kind === 'lora')?.name || '')
+
+    setDictionaryId((current) => {
+      if (current !== undefined) return current
+      const literary = dictionaryRows.find((item) => item.slug === 'default-literary')
+      const fallback = dictionaryRows.find((item) => item.is_default) ?? dictionaryRows[0]
+      return literary?.id ?? fallback?.id
+    })
+  }
+
+  useEffect(() => {
+    void load()
+    const timer = window.setInterval(() => void load(), 2000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const submit = async () => {
+    if (!file) {
+      show('Сначала выбери текстовый файл', 'info')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      await client.createSynthesisJob({
+        file,
+        voice_id: voiceId || undefined,
+        lora_name: loraName || undefined,
+        language: 'ru',
+        preprocess_profile: preprocessProfile,
+        reading_mode: readingMode,
+        dictionary_id: dictionaryId,
+        speaking_rate: speakingRate,
+        paragraph_pause_ms: paragraphPauseMs,
+      })
+
+      setFile(null)
+      await load()
+      show('Задача синтеза создана', 'success')
+    } catch (error) {
+      show(getErrorMessage(error), 'error')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="page-grid">
+      <section className="card wide">
+        <h2>Text → MP3</h2>
+
+        <div className="preview-box">
+          <strong>Пользовательский сценарий</strong>
+          <ol>
+            <li>Загрузи текстовый файл</li>
+            <li>Выбери профиль обработки, голос и стиль</li>
+            <li>Запусти синтез</li>
+            <li>Следи за этапами: загрузка, обработка, голос, MP3, скачивание</li>
+          </ol>
+        </div>
+
+        <label>Файл текста (.txt, .md)</label>
+        <input
+          type="file"
+          accept=".txt,.md,text/plain,text/markdown"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        />
+
+        <div className="grid two">
+          <div>
+            <label>Голос</label>
+            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
+              {voiceOptions.map((voice) => (
+                <option key={voice.id} value={voice.name}>
+                  {voice.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label>Стиль</label>
+            <select value={loraName} onChange={(e) => setLoraName(e.target.value)}>
+              {loraOptions.map((voice) => (
+                <option key={voice.id} value={voice.name}>
+                  {voice.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid two">
+          <div>
+            <label>Профиль препроцессинга</label>
+            <select
+              value={preprocessProfile}
+              onChange={(e) => setPreprocessProfile(e.target.value as 'literary' | 'technical')}
+            >
+              <option value="literary">Художественная литература</option>
+              <option value="technical">Технический текст</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Словарь</label>
+            <select
+              value={dictionaryId ?? ''}
+              onChange={(e) => setDictionaryId(e.target.value ? Number(e.target.value) : undefined)}
+            >
+              {dictionaries.map((dictionary) => (
+                <option key={dictionary.id} value={dictionary.id}>
+                  {dictionary.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid two">
+          <div>
+            <label>Режим чтения</label>
+            <select
+              value={readingMode}
+              onChange={(e) => setReadingMode(e.target.value as 'narration' | 'expressive' | 'dialogue' | 'technical')}
+            >
+              <option value="narration">Ровное повествование</option>
+              <option value="expressive">Выразительное чтение</option>
+              <option value="dialogue">Акцент на диалогах</option>
+              <option value="technical">Технический диктор</option>
+            </select>
+          </div>
+
+          <div>
+            <label>Темп речи</label>
+            <select
+              value={speakingRate}
+              onChange={(e) => setSpeakingRate(e.target.value as 'slow' | 'normal' | 'fast')}
+            >
+              <option value="slow">Медленный</option>
+              <option value="normal">Нормальный</option>
+              <option value="fast">Быстрее среднего</option>
+            </select>
+          </div>
+        </div>
+
+        <label>Пауза между фрагментами, мс</label>
+        <input
+          type="number"
+          min={0}
+          max={5000}
+          value={paragraphPauseMs}
+          onChange={(e) => setParagraphPauseMs(Number(e.target.value) || 0)}
+        />
+
+        <div className="row wrap" style={{ marginTop: '16px' }}>
+          <button onClick={() => void submit()} disabled={!file || isSubmitting}>
+            {isSubmitting ? 'Создание...' : 'Запустить синтез'}
+          </button>
+        </div>
+      </section>
+
+      <section className="card wide">
+        <h2>Задачи синтеза</h2>
+
+        {jobs.length === 0 && <p>Пока нет задач синтеза.</p>}
+
+        <div className="jobs-list">
+          {jobs.map((job) => {
+            const activeStageIndex = getStageIndex(job.stage)
+
+            return (
+              <article className="job-card" key={job.id}>
+                <div className="row space-between">
+                  <strong>{job.source_name}</strong>
+                  <span className={`badge badge-${job.status}`}>{stageLabel(job.stage)}</span>
+                </div>
+
+                <p>Прогресс: {job.progress}%</p>
+                <p>Голос: {job.voice_id || 'default'}</p>
+                <p>Стиль: {job.lora_name || 'default'}</p>
+                <p>Профиль: {job.preprocess_profile}</p>
+                <p>Режим чтения: {job.reading_mode}</p>
+                <p>Темп: {job.speaking_rate || 'normal'}</p>
+
+                <div className="preview-box">
+                  <strong>Этапы</strong>
+                  <ol>
+                    {orderedStages.map((stage, index) => {
+                      const completed = job.status === 'completed' && index <= activeStageIndex
+                      const active = job.stage === stage
+                      const failed = job.status === 'failed' && activeStageIndex === -1 && stage === 'uploaded'
+
+                      return (
+                        <li key={stage}>
+                          <strong>{stageLabel(stage)}</strong>
+                          {' — '}
+                          {completed ? 'готово' : active ? 'в работе' : failed ? 'ошибка' : 'ожидание'}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                </div>
+
+                {job.log && <pre>{job.log}</pre>}
+
+                {job.error_message && <p style={{ color: '#ef4444' }}>{job.error_message}</p>}
+
+                {job.status === 'completed' && (
+                  <div className="row wrap">
+                    <a href={`/api/v1/synthesis/${job.id}/download`} target="_blank" rel="noreferrer">
+                      Скачать MP3
+                    </a>
+                  </div>
+                )}
+              </article>
+            )
+          })}
+        </div>
       </section>
     </div>
   )
@@ -4495,8 +5596,8 @@ server {
 
 
 === SUMMARY ===
-included: 66
+included: 75
 skipped(binary): 1
 skipped(size): 0
 skipped(ext): 0
-totalBytes(approx): 138525
+totalBytes(approx): 176582
