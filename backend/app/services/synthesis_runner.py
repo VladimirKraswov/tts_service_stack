@@ -7,7 +7,6 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.synthesis import SynthesisJob
 from app.services.audio import concat_wav_segments, wav_to_mp3
-from app.services.book_preprocessor import LiteraryPreprocessor
 from app.services.preview.base import PreviewRequest
 from app.services.preview.factory import get_preview_engine
 from app.services.preprocessor import TechnicalPreprocessor
@@ -24,9 +23,7 @@ def _append_log(job: SynthesisJob, line: str) -> None:
 class SynthesisRunner:
     def __init__(self) -> None:
         self.preview_engine = get_preview_engine()
-        self.tech_preprocessor = TechnicalPreprocessor()
-        self.general_preprocessor = TechnicalPreprocessor()
-        self.literary_preprocessor = LiteraryPreprocessor()
+        self.preprocessor = TechnicalPreprocessor()
 
     async def run_job(self, job_id: int) -> None:
         await self.preview_engine.warmup()
@@ -62,26 +59,12 @@ class SynthesisRunner:
                 _append_log(job, "Начата обработка текста.")
                 db.commit()
 
-                if job.preprocess_profile == "literary":
-                    processed = self.literary_preprocessor.process(
-                        db,
-                        original_text,
-                        dictionary_id=job.dictionary_id,
-                    )
-                elif job.preprocess_profile == "technical":
-                    processed = self.tech_preprocessor.process(
-                        db,
-                        original_text,
-                        dictionary_id=job.dictionary_id,
-                        profile="technical",
-                    )
-                else:
-                    processed = self.general_preprocessor.process(
-                        db,
-                        original_text,
-                        dictionary_id=job.dictionary_id,
-                        profile="general",
-                    )
+                processed = self.preprocessor.process(
+                    db,
+                    original_text,
+                    dictionary_id=job.dictionary_id,
+                    profile=job.preprocess_profile or "general",
+                )
 
                 processed_text_path.write_text(processed.processed_text, encoding="utf-8")
                 job.processed_text_path = str(processed_text_path)
@@ -143,9 +126,10 @@ class SynthesisRunner:
 
             except Exception as exc:
                 job = db.get(SynthesisJob, job_id)
-                if job is not None:
-                    job.status = "failed"
-                    job.stage = "failed"
-                    job.error_message = str(exc)
-                    _append_log(job, f"Ошибка: {exc}")
-                    db.commit()
+                if job is None:
+                    return
+                job.status = "failed"
+                job.stage = "failed"
+                job.error_message = str(exc)
+                _append_log(job, f"Ошибка: {exc}")
+                db.commit()

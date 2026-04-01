@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -44,3 +44,8 @@ class DictionaryEntry(Base):
     )
 
     dictionary: Mapped['Dictionary'] = relationship(back_populates='entries')
+
+    __table_args__ = (
+        UniqueConstraint('dictionary_id', 'source_text', name='uq_dictionary_entry_source'),
+        Index('idx_dictionary_entry_lookup', 'dictionary_id', 'priority'),
+    )

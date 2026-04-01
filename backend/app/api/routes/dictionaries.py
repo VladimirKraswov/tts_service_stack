@@ -1,6 +1,8 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import get_db
 from app.models.dictionary import Dictionary, DictionaryEntry
@@ -24,6 +26,23 @@ router = APIRouter(prefix='/dictionaries', tags=['dictionaries'])
 preprocessor = TechnicalPreprocessor()
 
 
+def _normalize_text(text: str) -> str:
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _ensure_single_default(db: Session, dictionary_id: int, domain: str, language: str) -> None:
+    db.execute(
+        update(Dictionary)
+        .where(
+            Dictionary.id != dictionary_id,
+            Dictionary.domain == domain,
+            Dictionary.language == language,
+            Dictionary.is_default == True
+        )
+        .values(is_default=False)
+    )
+
+
 @router.get('', response_model=list[DictionaryRead])
 def list_dictionaries(db: Session = Depends(get_db)) -> list[Dictionary]:
     return list(
@@ -35,11 +54,25 @@ def list_dictionaries(db: Session = Depends(get_db)) -> list[Dictionary]:
 
 @router.post('', response_model=DictionaryRead)
 def create_dictionary(payload: DictionaryCreate, db: Session = Depends(get_db)) -> Dictionary:
-    dictionary = Dictionary(**payload.model_dump())
-    db.add(dictionary)
-    db.commit()
-    db.refresh(dictionary)
-    return dictionary
+    try:
+        # Prevent creating system dictionaries via API
+        data = payload.model_dump()
+        data['is_system'] = False
+        data['is_editable'] = True
+
+        dictionary = Dictionary(**data)
+        db.add(dictionary)
+        db.flush()
+
+        if dictionary.is_default:
+            _ensure_single_default(db, dictionary.id, dictionary.domain, dictionary.language)
+
+        db.commit()
+        db.refresh(dictionary)
+        return dictionary
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail='Dictionary with this slug or name already exists')
 
 
 @router.get('/{dictionary_id}', response_model=DictionaryRead)
@@ -56,18 +89,31 @@ def update_dictionary(dictionary_id: int, payload: DictionaryUpdate, db: Session
     if dictionary is None:
         raise HTTPException(status_code=404, detail='Dictionary not found')
 
+    requested = payload.model_dump(exclude_unset=True)
+
+    # Restricted fields for system dictionaries
     if not dictionary.is_editable:
         restricted_fields = {'name', 'slug', 'description', 'domain', 'language', 'is_system', 'is_editable'}
-        requested = payload.model_dump(exclude_unset=True)
         if any(field in requested for field in restricted_fields):
-            raise HTTPException(status_code=403, detail='Dictionary is not editable')
+            raise HTTPException(status_code=403, detail='System fields of this dictionary are not editable')
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    # Security: never allow changing is_system/is_editable via PATCH
+    requested.pop('is_system', None)
+    requested.pop('is_editable', None)
+
+    for field, value in requested.items():
         setattr(dictionary, field, value)
 
-    db.commit()
-    db.refresh(dictionary)
-    return dictionary
+    try:
+        db.flush()
+        if dictionary.is_default:
+            _ensure_single_default(db, dictionary.id, dictionary.domain, dictionary.language)
+        db.commit()
+        db.refresh(dictionary)
+        return dictionary
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail='Conflict: Name or slug already exists')
 
 
 @router.delete('/{dictionary_id}', status_code=204)
@@ -132,11 +178,19 @@ def add_entry(dictionary_id: int, payload: DictionaryEntryCreate, db: Session = 
     if not dictionary.is_editable:
         raise HTTPException(status_code=403, detail='Dictionary is not editable')
 
-    entry = DictionaryEntry(dictionary_id=dictionary_id, **payload.model_dump())
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
-    return entry
+    data = payload.model_dump()
+    data['source_text'] = _normalize_text(data['source_text'])
+    data['spoken_text'] = _normalize_text(data['spoken_text'])
+
+    try:
+        entry = DictionaryEntry(dictionary_id=dictionary_id, **data)
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f'Entry with source text "{data["source_text"]}" already exists')
 
 
 @router.patch('/{dictionary_id}/entries/{entry_id}', response_model=DictionaryEntryRead)
@@ -156,12 +210,22 @@ def update_entry(
     if entry is None or entry.dictionary_id != dictionary_id:
         raise HTTPException(status_code=404, detail='Entry not found')
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    requested = payload.model_dump(exclude_unset=True)
+    if 'source_text' in requested:
+        requested['source_text'] = _normalize_text(requested['source_text'])
+    if 'spoken_text' in requested:
+        requested['spoken_text'] = _normalize_text(requested['spoken_text'])
+
+    for field, value in requested.items():
         setattr(entry, field, value)
 
-    db.commit()
-    db.refresh(entry)
-    return entry
+    try:
+        db.commit()
+        db.refresh(entry)
+        return entry
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail='Conflict: Another entry with this source text already exists')
 
 
 @router.delete('/{dictionary_id}/entries/{entry_id}', status_code=204)
@@ -253,13 +317,16 @@ def import_into_dictionary(
         for entry in existing_entries.values():
             db.delete(entry)
             deleted_count += 1
+        db.flush()
         existing_entries = {}
 
     for entry_data in payload.entries:
-        existing = existing_entries.get(entry_data.source_text)
+        source_text = _normalize_text(entry_data.source_text)
+        existing = existing_entries.get(source_text)
+
         if existing is not None:
             if mode == ImportConflictMode.MERGE:
-                existing.spoken_text = entry_data.spoken_text
+                existing.spoken_text = _normalize_text(entry_data.spoken_text)
                 existing.note = entry_data.note
                 existing.case_sensitive = entry_data.case_sensitive
                 existing.is_enabled = entry_data.is_enabled
@@ -267,9 +334,18 @@ def import_into_dictionary(
                 updated_count += 1
             continue
 
-        new_entry = DictionaryEntry(dictionary_id=dictionary_id, **entry_data.model_dump())
-        db.add(new_entry)
-        created_count += 1
+        if mode == ImportConflictMode.CREATE_ONLY or mode == ImportConflictMode.MERGE or mode == ImportConflictMode.REPLACE_EXISTING_ENTRIES:
+            new_entry = DictionaryEntry(
+                dictionary_id=dictionary_id,
+                source_text=source_text,
+                spoken_text=_normalize_text(entry_data.spoken_text),
+                note=entry_data.note,
+                case_sensitive=entry_data.case_sensitive,
+                is_enabled=entry_data.is_enabled,
+                priority=entry_data.priority
+            )
+            db.add(new_entry)
+            created_count += 1
 
     db.commit()
     return {
@@ -304,9 +380,20 @@ def import_full_dictionary(
     db.add(dictionary)
     db.flush()
 
+    if dictionary.is_default:
+        _ensure_single_default(db, dictionary.id, dictionary.domain, dictionary.language)
+
     created_count = 0
     for entry_data in payload.entries:
-        db.add(DictionaryEntry(dictionary_id=dictionary.id, **entry_data.model_dump()))
+        db.add(DictionaryEntry(
+            dictionary_id=dictionary.id,
+            source_text=_normalize_text(entry_data.source_text),
+            spoken_text=_normalize_text(entry_data.spoken_text),
+            note=entry_data.note,
+            case_sensitive=entry_data.case_sensitive,
+            is_enabled=entry_data.is_enabled,
+            priority=entry_data.priority
+        ))
         created_count += 1
 
     db.commit()

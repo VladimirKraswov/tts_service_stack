@@ -11,7 +11,7 @@ from fastapi import WebSocket
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.live.base import LiveEngine, LiveSynthesisRequest
-from app.services.live.preprocessor import LiveTextPreprocessor
+from app.services.preprocessor import TechnicalPreprocessor
 from app.services.live.session_buffer import BufferedSegment, LiveTextBuffer
 
 logger = logging.getLogger(__name__)
@@ -27,10 +27,11 @@ class SessionContext:
     buffer: LiveTextBuffer = field(default_factory=LiveTextBuffer)
     consumer_task: asyncio.Task[None] | None = None
     idle_task: asyncio.Task[None] | None = None
+    current_task: asyncio.Task[None] | None = None
 
 
 class LiveSessionManager:
-    def __init__(self, live_engine: LiveEngine, preprocessor: LiveTextPreprocessor) -> None:
+    def __init__(self, live_engine: LiveEngine, preprocessor: TechnicalPreprocessor) -> None:
         self.live_engine = live_engine
         self.preprocessor = preprocessor
         self.sessions: dict[str, SessionContext] = {}
@@ -64,11 +65,11 @@ class LiveSessionManager:
         if ctx is None:
             return
 
-        for task in [ctx.idle_task, ctx.consumer_task]:
+        for task in [ctx.idle_task, ctx.consumer_task, ctx.current_task]:
             if task is not None:
                 task.cancel()
 
-        for task in [ctx.idle_task, ctx.consumer_task]:
+        for task in [ctx.idle_task, ctx.consumer_task, ctx.current_task]:
             if task is not None:
                 try:
                     await task
@@ -84,6 +85,7 @@ class LiveSessionManager:
         voice_id: str | None,
         lora_name: str | None,
         language: str | None,
+        preprocess_profile: str | None = None,
         flush: bool = False,
     ) -> None:
         ctx = self._get_ctx(session_id)
@@ -94,6 +96,7 @@ class LiveSessionManager:
             voice_id=voice_id,
             lora_name=lora_name,
             language=language,
+            preprocess_profile=preprocess_profile,
             flush=flush,
         )
 
@@ -123,12 +126,17 @@ class LiveSessionManager:
         await self._cancel_idle_task(ctx)
         ctx.buffer.clear()
 
+        # Clear queue
         while not ctx.queue.empty():
             try:
                 ctx.queue.get_nowait()
                 ctx.queue.task_done()
             except asyncio.QueueEmpty:
                 break
+
+        # Interrupt current synthesis if any
+        if ctx.current_task and not ctx.current_task.done():
+            ctx.current_task.cancel()
 
         await self._send_json(ctx, {'type': 'buffer.cleared'})
         await self._send_buffer_state(ctx)
@@ -142,6 +150,7 @@ class LiveSessionManager:
         voice_id: str | None,
         lora_name: str | None,
         language: str | None,
+        preprocess_profile: str | None = None,
     ) -> None:
         await self.append_text(
             session_id,
@@ -150,87 +159,104 @@ class LiveSessionManager:
             voice_id=voice_id,
             lora_name=lora_name,
             language=language,
+            preprocess_profile=preprocess_profile,
             flush=True,
         )
 
     async def _consumer_loop(self, ctx: SessionContext) -> None:
         while True:
             segment = await ctx.queue.get()
-            started_at = time.perf_counter()
-            first_audio_sent = False
 
+            # Use current_task to allow interruption
+            ctx.current_task = asyncio.create_task(self._process_segment(ctx, segment))
             try:
-                with SessionLocal() as db:
-                    processed_text = self.preprocessor.process(
-                        db=db,
-                        text=segment.text,
-                        dictionary_id=segment.dictionary_id,
-                    )
+                await ctx.current_task
+            except asyncio.CancelledError:
+                logger.info('Segment synthesis interrupted session=%s', ctx.session_id)
+            except Exception as exc:
+                logger.exception('Segment processing failed session=%s', ctx.session_id)
+            finally:
+                ctx.current_task = None
+                ctx.queue.task_done()
 
-                await self._send_json(
-                    ctx,
-                    {
-                        'type': 'segment.started',
-                        'segment_id': segment.segment_id,
-                        'raw_text': segment.text,
-                        'processed_text': processed_text,
-                    },
+    async def _process_segment(self, ctx: SessionContext, segment: BufferedSegment) -> None:
+        started_at = time.perf_counter()
+        first_audio_sent = False
+
+        try:
+            with SessionLocal() as db:
+                processed = self.preprocessor.process(
+                    db=db,
+                    text=segment.text,
+                    dictionary_id=segment.dictionary_id,
+                    profile=segment.preprocess_profile,
                 )
+                processed_text = processed.processed_text
 
-                async for audio in self.live_engine.synthesize_segment(
-                    LiveSynthesisRequest(
-                        text=processed_text,
-                        voice_id=segment.voice_id,
-                        lora_name=segment.lora_name,
-                        language=segment.language,
-                    )
-                ):
-                    if not first_audio_sent:
-                        first_audio_sent = True
-                        await self._send_json(
-                            ctx,
-                            {
-                                'type': 'metrics.first_audio',
-                                'segment_id': segment.segment_id,
-                                'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
-                            },
-                        )
+            await self._send_json(
+                ctx,
+                {
+                    'type': 'segment.started',
+                    'segment_id': segment.segment_id,
+                    'raw_text': segment.text,
+                    'processed_text': processed_text,
+                },
+            )
 
+            async for audio in self.live_engine.synthesize_segment(
+                LiveSynthesisRequest(
+                    text=processed_text,
+                    voice_id=segment.voice_id,
+                    lora_name=segment.lora_name,
+                    language=segment.language,
+                )
+            ):
+                if not first_audio_sent:
+                    first_audio_sent = True
                     await self._send_json(
                         ctx,
                         {
-                            'type': 'audio.chunk',
+                            'type': 'metrics.first_audio',
                             'segment_id': segment.segment_id,
-                            'seq_no': audio.seq_no,
-                            'text': audio.text,
-                            'audio_b64': base64.b64encode(audio.pcm_bytes).decode('ascii'),
-                            'sample_rate': audio.sample_rate,
-                            'mime': audio.mime,
-                            'is_last': audio.is_last,
+                            'latency_ms': round((time.perf_counter() - started_at) * 1000, 2),
                         },
                     )
 
                 await self._send_json(
                     ctx,
                     {
-                        'type': 'segment.done',
+                        'type': 'audio.chunk',
                         'segment_id': segment.segment_id,
-                        'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                        'seq_no': audio.seq_no,
+                        'text': audio.text,
+                        'audio_b64': base64.b64encode(audio.pcm_bytes).decode('ascii'),
+                        'sample_rate': audio.sample_rate,
+                        'mime': audio.mime,
+                        'is_last': audio.is_last,
                     },
                 )
 
-            except Exception as exc:
-                logger.exception('Live segment synthesis failed session=%s', ctx.session_id)
-                await self._send_json(
-                    ctx,
-                    {
-                        'type': 'job.error',
-                        'segment_id': segment.segment_id,
-                        'error': str(exc),
-                    },
-                )
-            finally:
-                ctx.queue.task_done()
+            await self._send_json(
+                ctx,
+                {
+                    'type': 'segment.done',
+                    'segment_id': segment.segment_id,
+                    'total_ms': round((time.perf_counter() - started_at) * 1000, 2),
+                },
+            )
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._send_json(
+                ctx,
+                {
+                    'type': 'job.error',
+                    'segment_id': segment.segment_id,
+                    'error': str(exc),
+                },
+            )
+            raise
 
     async def _enqueue_segments(self, ctx: SessionContext, segments: list[BufferedSegment]) -> None:
         for segment in segments:

@@ -18,6 +18,7 @@ class BufferedSegment:
     voice_id: str | None
     lora_name: str | None
     language: str
+    preprocess_profile: str
 
 
 class LiveTextBuffer:
@@ -27,6 +28,7 @@ class LiveTextBuffer:
         self.voice_id: str | None = None
         self.lora_name: str | None = None
         self.language: str = 'ru'
+        self.preprocess_profile: str = 'general'
         self.last_update_ts = time.monotonic()
 
     def update_options(
@@ -35,11 +37,13 @@ class LiveTextBuffer:
         voice_id: str | None,
         lora_name: str | None,
         language: str | None,
+        preprocess_profile: str | None,
     ) -> None:
         self.dictionary_id = dictionary_id
         self.voice_id = voice_id
         self.lora_name = lora_name
         self.language = language or 'ru'
+        self.preprocess_profile = preprocess_profile or 'general'
 
     def append(
         self,
@@ -49,9 +53,10 @@ class LiveTextBuffer:
         voice_id: str | None,
         lora_name: str | None,
         language: str | None,
+        preprocess_profile: str | None,
         flush: bool = False,
     ) -> list[BufferedSegment]:
-        self.update_options(dictionary_id, voice_id, lora_name, language)
+        self.update_options(dictionary_id, voice_id, lora_name, language, preprocess_profile)
         self.pending_text = self._join_text(self.pending_text, text)
         self.last_update_ts = time.monotonic()
         return self._extract_ready(force=flush)
@@ -231,6 +236,7 @@ class LiveTextBuffer:
             voice_id=self.voice_id,
             lora_name=self.lora_name,
             language=self.language,
+            preprocess_profile=self.preprocess_profile,
         )
 
     def _join_text(self, current: str, incoming: str) -> str:

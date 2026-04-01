@@ -130,16 +130,23 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(await readError(response))
   }
 
-  if (response.status === 204) {
-    return undefined as T
+  // Handle 204 No Content and empty responses explicitly
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as unknown as T
   }
 
   const contentType = response.headers.get('content-type') || ''
   if (!contentType.includes('application/json')) {
-    return (await response.text()) as T
+    return (await response.text()) as unknown as T
   }
 
-  return response.json() as Promise<T>
+  try {
+    return await response.json()
+  } catch (err) {
+    // If JSON parsing fails but status was OK, return undefined or text
+    console.warn('Failed to parse JSON response', err)
+    return undefined as unknown as T
+  }
 }
 
 export const client = {
